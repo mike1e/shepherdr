@@ -29,7 +29,7 @@ import { taskMenu } from "./core/menus.js";
 import { machinesInOrder, machineOrderOf, chatPane } from "./core/spaces.js";
 // The rules for a task's status, order and words: shared with the web app (core/tasks.js).
 import { RANK, STATUS, RANK_OF, ORDER, GROUP_BY, groupBy, groupNow, machineOf, machineName, refOf, taskKey, autoPrefix, place,
-  queueReason, reportOf as report, secondLine, leftOf, order, matches, day, ago, capital, short, autoWhere, fromLine, inSpace, holdingItems } from "./core/tasks.js";
+  sortNow, sortWords, orderIn, queueReason, reportOf as report, secondLine, leftOf, order, matches, day, ago, capital, short, autoWhere, fromLine, inSpace, holdingItems } from "./core/tasks.js";
 import { READ_LISTS, taskLists } from "./core/tasklists.js";
 import { SH } from "./core/paths.js";
 import { settle } from "./core/pending.js";
@@ -320,6 +320,8 @@ export default class Tasks extends View {
     this.multi = multi;
     // Group by (the ⋯ menu): For you until another is chosen (core/tasks.js groupNow).
     const by = groupNow(shared);
+    // Sort to do by (the ⋯ menu): Default is today's order.
+    const sort = sortNow(shared);
     this.names = { machine: false, space: true };
 
     // Needs you: everything that needs the person (inbox.js), from every space and machine. A task
@@ -330,7 +332,7 @@ export default class Tasks extends View {
     // A task Herdr saw go wrong that the list hasn't caught up with yet shows as itself.
     const extra = placed.filter((p) => p.section === "needs" && !inNeeds(p)).sort(order("needs"));
     placed = placed.filter((p) => p.section !== "needs" && !inNeeds(p));
-    const sorted = (ps) => [...ps].sort((a, b) => RANK_OF[a.section] - RANK_OF[b.section] || order(a.section)(a, b));
+    const sorted = (ps) => [...ps].sort((a, b) => RANK_OF[a.section] - RANK_OF[b.section] || orderIn(a.section, sort)(a, b));
 
     const needList = [...inbox.map((x) => ({ row: this.needRow(x, t), pin: pinNeed(x) })),
       ...extra.map((p) => ({ row: this.row(p, t), pin: isPin(p) }))].filter((n) => n.row);
@@ -421,11 +423,13 @@ export default class Tasks extends View {
     return v_flex().id("tasks").size_full().min_h(0).on_size_change((size, cx) => { if (size.width !== this.width) { this.width = size.width; cx.notify(); } }).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().pl(14).pr(8).gap(6).items_center().border_b(1).border_color(t.border)
         .child(div().font_semibold().child("Tasks"))
+        // The To do sort, once it isn't Default.
+        .when(Boolean(sortWords(sort)), (el) => el.child(div().text_size(12).text_color(t.muted).child(`To do: ${sortWords(sort)}`)))
         .child(div().flex_1())
         .child(h_flex().id("task-more").size(H.sm).flex_none().items_center().justify_center().rounded(RADIUS.control).cursor_pointer().text_color(t.muted)
           .hover((s) => s.bg(t.hover).text_color(t.foreground))
           // Its menu (mods/tasks-menu): a 28 heading, then 32 rows (ui.js menuRow).
-          .on_click(() => openOverlay({ mod: "tasks-menu", kind: "popup", at: "pointer", width: 200, height: 8 + 28 + 3 * 32, props: { menu: "group", current: by } }))
+          .on_click(() => openOverlay({ mod: "tasks-menu", kind: "popup", at: "pointer", width: 200, height: 388, props: { menu: "group", current: by } }))
           .child(svg("mods/tasks/more.svg").size(14).flex_none())))
       .child(this.searchField(t))
       .when(!this.archivedOpen && filters, (el) => el.child(this.filterRow(chips, count, filter, t, here)))

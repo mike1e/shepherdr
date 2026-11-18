@@ -1,7 +1,9 @@
 // The Tasks panel's small menus (mods/tasks), as popups at the pointer in the look of Herdr's
 // own menu. props().menu:
 //   "group"   the header's ⋯: group the list For you, by space or by status (shared "tasks.group",
-//             kept; props().current, the panel's grouping now: core/tasks.js groupNow)
+//             kept; props().current, the panel's grouping now: core/tasks.js groupNow), then sort the To do
+//             group by Name, Key or Created, ascending or descending (shared "tasks.sort" = { by, dir },
+//             props().sort; core/tasks.js SORTS)
 //   "filter"  the filter row's More: the statuses that don't get a chip of their own;
 //             props().items = [{ key, label, count }], props().current. A pick goes to the
 //             panel as shared "tasks.filterreq" = { key, at }.
@@ -18,6 +20,7 @@ import { props, closeOverlay, theme, shared, setShared, exec, appHome } from "he
 import { menuRow, heading, toast, TEXT } from "./ui.js";
 import { taskMenu } from "./core/menus.js";
 import { settle } from "./core/pending.js";
+import { SORTS, SORT_DIRS, sortNow } from "./core/tasks.js";
 
 // Shepherdr's GROUP_WORDS (core/tasks.js GROUP_BY).
 const GROUPS = [{ key: "you", label: "For you" }, { key: "space", label: "Space" }, { key: "status", label: "Status" }];
@@ -29,7 +32,12 @@ function sections() {
   if (p.menu === "filter") return [{ title: null, items: p.items ?? [], current: p.current,
     pick: (key) => setShared("tasks.filterreq", { key, at: Date.now() }) }];
   const current = GROUPS.some((g) => g.key === p.current) ? p.current : "you";
-  return [{ title: "Group by", items: GROUPS, current, pick: (key) => setShared("tasks.group", key) }];
+  // A pick of the key keeps the direction, and the reverse.
+  const sort = sortNow(shared);
+  const items = (o) => Object.entries(o).map(([key, v]) => ({ key, label: v.label ?? v }));
+  return [{ title: "Group by", items: GROUPS, current, pick: (key) => setShared("tasks.group", key) },
+    { title: "Sort to do by", items: items(SORTS), current: sort.by, pick: (by) => setShared("tasks.sort", { by, dir: sortNow(shared).dir }) },
+    { title: "Order", items: items(SORT_DIRS), current: sort.dir, pick: (dir) => setShared("tasks.sort", { by: sortNow(shared).by, dir }) }];
 }
 
 // A row's menu (core/menus.js taskMenu, the web's too): its sections between the lines, a heading

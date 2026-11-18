@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { place, queueReason, reportOf, estimated, order, ago, autoPrefix, refOf, taskKey, matches, busyAgain, secondLine, leftOf, ORDER, STATUS, WORKING_AGAIN, GRACE_MS, fromLine, autoWhere, inSpace, holdingItems } from "./tasks.js";
+import { todoOrder, orderIn, sortNow, sortWords, place, queueReason, reportOf, estimated, order, ago, autoPrefix, refOf, taskKey, matches, busyAgain, secondLine, leftOf, ORDER, STATUS, WORKING_AGAIN, GRACE_MS, fromLine, autoWhere, inSpace, holdingItems } from "./tasks.js";
 import { REASONS, fit } from "./needs.js";
 
 const NOW = 1_800_000_000_000;
@@ -240,5 +240,43 @@ describe("Needs-you items the task's own status has moved past (SHEP-195)", () =
     const done = at({ id: 3, state: "done" });
     const items = [item("check", { ref: "X-9" }), item("blocked", { terminal: "t1" }), item("provider")];
     expect(holdingItems(items, truthOf(done))).toHaveLength(3);
+  });
+});
+
+describe("sorting the To do group (Sort to do by)", () => {
+  const L = (prefix) => ({ prefix });
+  const row = (prefix, id, title, created) => ({ list: L(prefix), task: { id, title, created } });
+  const rows = [row("HAT", 10, "beta", 300), row("HAT", 2, "Alpha", 100), row("AAA", 7, "alpha", 200), row("HAT", 3, "Zed", 100)];
+  const ids = (sort) => [...rows].sort(todoOrder(sort)).map((r) => `${r.list.prefix}-${r.task.id}`);
+  test("Default is today's order (by number)", () => {
+    expect(ids({ by: "default", dir: "asc" })).toEqual(["HAT-2", "HAT-3", "AAA-7", "HAT-10"]);
+    expect(ids(undefined)).toEqual(ids({ by: "default", dir: "asc" }));
+    expect(orderIn("todo", { by: "default" })).not.toBe(orderIn("done", { by: "name" }));
+  });
+  test("Name is case-insensitive, ties keep today's order, in both directions", () => {
+    expect(ids({ by: "name", dir: "asc" })).toEqual(["HAT-2", "AAA-7", "HAT-10", "HAT-3"]);
+    // "Alpha" and "alpha" tie: HAT-2 comes first by number in both directions.
+    expect(ids({ by: "name", dir: "desc" })).toEqual(["HAT-3", "HAT-10", "HAT-2", "AAA-7"]);
+  });
+  test("Key is the prefix, then the number (HAT-2 before HAT-10)", () => {
+    expect(ids({ by: "key", dir: "asc" })).toEqual(["AAA-7", "HAT-2", "HAT-3", "HAT-10"]);
+    expect(ids({ by: "key", dir: "desc" })).toEqual(["HAT-10", "HAT-3", "HAT-2", "AAA-7"]);
+  });
+  test("Created is the task's created time; equal times keep today's order", () => {
+    expect(ids({ by: "created", dir: "asc" })).toEqual(["HAT-2", "HAT-3", "AAA-7", "HAT-10"]);
+    expect(ids({ by: "created", dir: "desc" })).toEqual(["HAT-10", "AAA-7", "HAT-2", "HAT-3"]);
+  });
+  test("the sort touches To do only; other sections keep their order", () => {
+    const done = [{ task: { id: 1, done_at: 1 } }, { task: { id: 2, done_at: 2 } }];
+    expect([...done].sort(orderIn("done", { by: "name", dir: "desc" })).map((r) => r.task.id)).toEqual([2, 1]);
+  });
+  test("the saved choice: Default until chosen, unknown means Default, the words", () => {
+    const of = (v) => sortNow((k) => (k === "tasks.sort" ? v : undefined));
+    expect(of(undefined)).toEqual({ by: "default", dir: "asc" });
+    expect(of({ by: "bogus", dir: "desc" })).toEqual({ by: "default", dir: "asc" });
+    expect(of({ by: "key", dir: "desc" })).toEqual({ by: "key", dir: "desc" });
+    expect(of({ by: "name" })).toEqual({ by: "name", dir: "asc" });
+    expect(sortWords(of(undefined))).toBeNull();
+    expect(sortWords(of({ by: "created", dir: "desc" }))).toBe("Created ↓");
   });
 });

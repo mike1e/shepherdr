@@ -260,6 +260,38 @@ export function order(section) {
   return (a, b) => (b.task.ready_at ?? b.task.started ?? 0) - (a.task.ready_at ?? a.task.started ?? 0);
 }
 
+// How the To do group can be sorted (the ⋯ menu's Sort to do by; shared "tasks.sort" = { by, dir }). One table: a new
+// sort (SHEP #1193's Priority) is one more entry here, and its label in the menu comes with it. cmp(a, b) compares
+// two placed tasks ({ list, task }) ascending; "default" is today's order (order("todo")) and has no cmp.
+export const SORT_DEFAULT = "default";
+const taskNo = (p) => Number(p.task.id) || 0;
+export const SORTS = {
+  default: { label: "Default" },
+  name: { label: "Name", cmp: (a, b) => String(a.task.title ?? "").toLowerCase().localeCompare(String(b.task.title ?? "").toLowerCase()) },
+  // The task's id by its prefix, then its number (HAT-2 before HAT-10).
+  key: { label: "Key", cmp: (a, b) => String(a.list.prefix ?? "").localeCompare(String(b.list.prefix ?? "")) || taskNo(a) - taskNo(b) },
+  created: { label: "Created", cmp: (a, b) => (a.task.created ?? 0) - (b.task.created ?? 0) },
+};
+export const SORT_DIRS = { asc: "Ascending", desc: "Descending" };
+// The sort now: { by, dir }, Default (ascending) until chosen; anything unknown is Default. shared: shared(key).
+export function sortNow(shared) {
+  const v = shared("tasks.sort");
+  const by = v && typeof v === "object" && SORTS[v.by] ? v.by : SORT_DEFAULT;
+  return { by, dir: by !== SORT_DEFAULT && v.dir === "desc" ? "desc" : "asc" };
+}
+// The words for a sort that isn't Default ("Name ↑"), else null.
+export const sortWords = (sort) => (sort.by === SORT_DEFAULT ? null : `${SORTS[sort.by].label} ${sort.dir === "desc" ? "↓" : "↑"}`);
+// A comparator for the To do group: the chosen sort, ties in today's order (so Descending keeps the ties' order too).
+export function todoOrder(sort) {
+  const base = order("todo");
+  const cmp = SORTS[sort?.by]?.cmp;
+  if (!cmp) return base;
+  const sign = sort.dir === "desc" ? -1 : 1;
+  return (a, b) => sign * cmp(a, b) || base(a, b);
+}
+// A section's comparator under the sort: the sort touches To do only.
+export const orderIn = (section, sort) => (section === "todo" ? todoOrder(sort) : order(section));
+
 // Whether every word typed is in one of these, any case (Shepherdr's matches(): its lists' filters).
 export function matches(q, ...fields) {
   const words = String(q).toLowerCase().split(/\s+/).filter(Boolean);

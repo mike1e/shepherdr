@@ -21,6 +21,7 @@ State: ✓ matches, ◇ web-only form (why), ✗ still differs (why).
 | Title | T:370 "Tasks", semibold | A SideList `Tasks` (beside Artifacts as tabs) | ◇ the window's Artifacts is its own panel; the web's narrow screens put the two side panels under one head (artifacts and header pages) |
 | ⋯ Group by | T:372-375 icon button, tooltip "Group by" | W TasksMenu, label "Group by" | ✓ |
 | Group by menu | TM heading "Group by"; For you, Space, Status (shared "tasks.group"; props().current from the panel); check on the current | W TasksMenu, G `groupChoices` | ✓ (SHEP-98) |
+| Sort to do by (⋯ menu, below Group by) | TM sections "Sort to do by" (Default, Name, Key, Created) and "Order" (Ascending, Descending), shared "tasks.sort" = { by, dir }; the header says "To do: Name ↑" once it isn't Default; core `SORTS`, `todoOrder` | not yet: the web's To do keeps today's order | ◇ window first (follow-up: the web's `groupTasks` uses `todoOrder`) |
 | Search field | T:86,489-503 "Filter tasks", magnifier, F key hint while empty and unfocused, X "Clear" | W TaskFilter (FilterBox) | ✓ |
 | F to the field, Esc clears | T:384, T:505-510 | keyboard plugin, FilterBox | ✓ |
 | What search finds | T:472-475 id, title, status line, summary, #PR, space, list, machine | W `found` | ✓ (summary isn't in the snapshot; the status line and report are) |
