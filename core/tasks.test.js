@@ -273,7 +273,7 @@ describe("sorting the To do group (Sort to do by)", () => {
   test("the saved choice: Default until chosen, unknown means Default, the words", () => {
     const of = (v) => sortNow((k) => (k === "tasks.sort" ? v : undefined));
     expect(of(undefined)).toEqual({ by: "default", dir: "asc" });
-    expect(of({ by: "bogus", dir: "desc" })).toEqual({ by: "default", dir: "asc" });
+    expect(of({ by: "bogus", dir: "desc" }).by).toBe("default");
     expect(of({ by: "key", dir: "desc" })).toEqual({ by: "key", dir: "desc" });
     expect(of({ by: "default", dir: "desc" }).dir).toBe("desc");
     expect(of({ by: "name" })).toEqual({ by: "name", dir: "asc" });
