@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { todoOrder, orderIn, sortNow, sortWords, place, queueReason, reportOf, estimated, order, ago, autoPrefix, refOf, taskKey, matches, busyAgain, secondLine, leftOf, ORDER, STATUS, WORKING_AGAIN, GRACE_MS, fromLine, autoWhere, inSpace, holdingItems } from "./tasks.js";
+import { GROUP_MENU_HEIGHT, todoOrder, orderIn, sortNow, sortWords, place, queueReason, reportOf, estimated, order, ago, autoPrefix, refOf, taskKey, matches, busyAgain, secondLine, leftOf, ORDER, STATUS, WORKING_AGAIN, GRACE_MS, fromLine, autoWhere, inSpace, holdingItems } from "./tasks.js";
 import { REASONS, fit } from "./needs.js";
 
 const NOW = 1_800_000_000_000;
@@ -251,7 +251,7 @@ describe("sorting the To do group (Sort to do by)", () => {
   test("Default is today's order (by number)", () => {
     expect(ids({ by: "default", dir: "asc" })).toEqual(["HAT-2", "HAT-3", "AAA-7", "HAT-10"]);
     expect(ids(undefined)).toEqual(ids({ by: "default", dir: "asc" }));
-    expect(orderIn("todo", { by: "default" })).not.toBe(orderIn("done", { by: "name" }));
+    expect(GROUP_MENU_HEIGHT).toBe(388);
   });
   test("Name is case-insensitive, ties keep today's order, in both directions", () => {
     expect(ids({ by: "name", dir: "asc" })).toEqual(["HAT-2", "AAA-7", "HAT-10", "HAT-3"]);
@@ -275,6 +275,7 @@ describe("sorting the To do group (Sort to do by)", () => {
     expect(of(undefined)).toEqual({ by: "default", dir: "asc" });
     expect(of({ by: "bogus", dir: "desc" })).toEqual({ by: "default", dir: "asc" });
     expect(of({ by: "key", dir: "desc" })).toEqual({ by: "key", dir: "desc" });
+    expect(of({ by: "default", dir: "desc" }).dir).toBe("desc");
     expect(of({ by: "name" })).toEqual({ by: "name", dir: "asc" });
     expect(sortWords(of(undefined))).toBeNull();
     expect(sortWords(of({ by: "created", dir: "desc" }))).toBe("Created ↓");

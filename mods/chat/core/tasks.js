@@ -267,17 +267,19 @@ export const SORT_DEFAULT = "default";
 const taskNo = (p) => Number(p.task.id) || 0;
 export const SORTS = {
   default: { label: "Default" },
-  name: { label: "Name", cmp: (a, b) => String(a.task.title ?? "").toLowerCase().localeCompare(String(b.task.title ?? "").toLowerCase()) },
+  name: { label: "Name", cmp: (a, b) => String(a.task.title ?? "").toLowerCase().localeCompare(String(b.task.title ?? "").toLowerCase(), undefined, { numeric: true }) },
   // The task's id by its prefix, then its number (HAT-2 before HAT-10).
   key: { label: "Key", cmp: (a, b) => String(a.list.prefix ?? "").localeCompare(String(b.list.prefix ?? "")) || taskNo(a) - taskNo(b) },
   created: { label: "Created", cmp: (a, b) => (a.task.created ?? 0) - (b.task.created ?? 0) },
 };
 export const SORT_DIRS = { asc: "Ascending", desc: "Descending" };
-// The sort now: { by, dir }, Default (ascending) until chosen; anything unknown is Default. shared: shared(key).
+// The ⋯ menu's popup height: its padding, 3 headings (Group by, Sort to do by, Order), a row for each choice and 2 gaps.
+export const GROUP_MENU_HEIGHT = 8 + 3 * 28 + (3 + Object.keys(SORTS).length + Object.keys(SORT_DIRS).length) * 32 + 2 * 4;
+// The sort now: { by, dir }, Default (ascending) until chosen (the direction is kept while Default, for the next pick); anything unknown is Default. shared: shared(key).
 export function sortNow(shared) {
   const v = shared("tasks.sort");
   const by = v && typeof v === "object" && SORTS[v.by] ? v.by : SORT_DEFAULT;
-  return { by, dir: by !== SORT_DEFAULT && v.dir === "desc" ? "desc" : "asc" };
+  return { by, dir: v && v.dir === "desc" ? "desc" : "asc" };
 }
 // The words for a sort that isn't Default ("Name ↑"), else null.
 export const sortWords = (sort) => (sort.by === SORT_DEFAULT ? null : `${SORTS[sort.by].label} ${sort.dir === "desc" ? "↓" : "↑"}`);

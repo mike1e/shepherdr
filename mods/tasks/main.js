@@ -29,7 +29,7 @@ import { taskMenu } from "./core/menus.js";
 import { machinesInOrder, machineOrderOf, chatPane } from "./core/spaces.js";
 // The rules for a task's status, order and words: shared with the web app (core/tasks.js).
 import { RANK, STATUS, RANK_OF, ORDER, GROUP_BY, groupBy, groupNow, machineOf, machineName, refOf, taskKey, autoPrefix, place,
-  sortNow, sortWords, orderIn, queueReason, reportOf as report, secondLine, leftOf, order, matches, day, ago, capital, short, autoWhere, fromLine, inSpace, holdingItems } from "./core/tasks.js";
+  sortNow, sortWords, GROUP_MENU_HEIGHT, orderIn, queueReason, reportOf as report, secondLine, leftOf, order, matches, day, ago, capital, short, autoWhere, fromLine, inSpace, holdingItems } from "./core/tasks.js";
 import { READ_LISTS, taskLists } from "./core/tasklists.js";
 import { SH } from "./core/paths.js";
 import { settle } from "./core/pending.js";
@@ -429,7 +429,7 @@ export default class Tasks extends View {
         .child(h_flex().id("task-more").size(H.sm).flex_none().items_center().justify_center().rounded(RADIUS.control).cursor_pointer().text_color(t.muted)
           .hover((s) => s.bg(t.hover).text_color(t.foreground))
           // Its menu (mods/tasks-menu): a 28 heading, then 32 rows (ui.js menuRow).
-          .on_click(() => openOverlay({ mod: "tasks-menu", kind: "popup", at: "pointer", width: 200, height: 388, props: { menu: "group", current: by } }))
+          .on_click(() => openOverlay({ mod: "tasks-menu", kind: "popup", at: "pointer", width: 200, height: GROUP_MENU_HEIGHT, props: { menu: "group", current: by } }))
           .child(svg("mods/tasks/more.svg").size(14).flex_none())))
       .child(this.searchField(t))
       .when(!this.archivedOpen && filters, (el) => el.child(this.filterRow(chips, count, filter, t, here)))
