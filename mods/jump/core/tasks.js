@@ -260,10 +260,14 @@ export function order(section) {
   return (a, b) => (b.task.ready_at ?? b.task.started ?? 0) - (a.task.ready_at ?? a.task.started ?? 0);
 }
 
-// How the To do group can be sorted (the ⋯ menu's Sort to do by; shared "tasks.sort" = { by, dir }). One table: a new
+// How the To do group can be sorted (the ⋯ menu's Sort by; shared "tasks.sort" = { by, dir }). One table: a new
 // sort (SHEP #1193's Priority) is one more entry here, and its label in the menu comes with it. cmp(a, b) compares
-// two placed tasks ({ list, task }) ascending; "default" is today's order (order("todo")) and has no cmp.
+// two placed tasks ({ list, task }) ascending; "default" is today's order (order("todo")) and has no cmp. all: the sort
+// orders every group, not only To do.
 export const SORT_DEFAULT = "default";
+// A task's priority ("p0" Urgent .. "p4" Backlog; mods/tasks/priority.js has the levels' words): 0 for P0 ... 4 for P4, 5 unflagged.
+const PRIORITIES = ["p0", "p1", "p2", "p3", "p4"];
+const priorityRank = (v) => { const i = PRIORITIES.indexOf(typeof v === "string" ? v.trim().toLowerCase() : ""); return i < 0 ? PRIORITIES.length : i; };
 const taskNo = (p) => Number(p.task.id) || 0;
 export const SORTS = {
   default: { label: "Default" },
@@ -271,28 +275,40 @@ export const SORTS = {
   // The task's id by its prefix, then its number (HAT-2 before HAT-10).
   key: { label: "Key", cmp: (a, b) => String(a.list.prefix ?? "").localeCompare(String(b.list.prefix ?? "")) || taskNo(a) - taskNo(b) },
   created: { label: "Created", cmp: (a, b) => (a.task.created ?? 0) - (b.task.created ?? 0) },
+  // MSHEP-1's Priority: P0 first, the unflagged last; it orders every group (all), the others the To do group only.
+  priority: { label: "Priority", all: true, cmp: (a, b) => priorityRank(a.task.priority) - priorityRank(b.task.priority) },
 };
 export const SORT_DIRS = { asc: "Ascending", desc: "Descending" };
-// The ⋯ menu's popup height: its padding, 3 headings (Group by, Sort to do by, Order), a row for each choice and 2 gaps.
+// The ⋯ menu's popup height: its padding, 3 headings (Group by, Sort by, Order), a row for each choice and 2 gaps.
 export const GROUP_MENU_HEIGHT = 8 + 3 * 28 + (3 + Object.keys(SORTS).length + Object.keys(SORT_DIRS).length) * 32 + 2 * 4;
 // The sort now: { by, dir }, Default (ascending) until chosen (the direction is kept while Default, for the next pick); anything unknown is Default. shared: shared(key).
 export function sortNow(shared) {
-  const v = shared("tasks.sort");
+  let v = shared("tasks.sort");
+  if (typeof v === "string") v = { by: v }; // MSHEP-1 kept "priority" or "default" as a plain string
   const by = v && typeof v === "object" && SORTS[v.by] ? v.by : SORT_DEFAULT;
   return { by, dir: v && v.dir === "desc" ? "desc" : "asc" };
 }
 // The words for a sort that isn't Default ("Name ↑"), else null.
-export const sortWords = (sort) => (sort.by === SORT_DEFAULT ? null : `${SORTS[sort.by].label} ${sort.dir === "desc" ? "↓" : "↑"}`);
-// A comparator for the To do group: the chosen sort, ties in today's order (so Descending keeps the ties' order too).
-export function todoOrder(sort) {
-  const base = order("todo");
+export const sortWords = (sort) => (sort.by === SORT_DEFAULT ? null : `${SORTS[sort.by].all ? "" : "To do: "}${SORTS[sort.by].label} ${sort.dir === "desc" ? "↓" : "↑"}`);
+// A comparator for a group's order: the chosen sort, ties in the group's own order (so Descending keeps the ties' order too).
+const sortedBy = (sort, base) => {
   const cmp = SORTS[sort?.by]?.cmp;
   if (!cmp) return base;
   const sign = sort.dir === "desc" ? -1 : 1;
   return (a, b) => sign * cmp(a, b) || base(a, b);
-}
-// A section's comparator under the sort: the sort touches To do only.
-export const orderIn = (section, sort) => (section === "todo" ? todoOrder(sort) : order(section));
+};
+export const todoOrder = (sort) => sortedBy(sort, order("todo"));
+// A section's comparator under the sort: To do's, or any group's for a sort that orders them all (Priority).
+export const orderIn = (section, sort) => (section === "todo" || SORTS[sort?.by]?.all ? sortedBy(sort, order(section)) : order(section));
+// Placed tasks of any sections in one list (a space's group): by status then each status's order, but a sort that orders
+// every group (Priority) goes first, as MSHEP-1 had it, the status order breaking its ties.
+export const rowOrder = (sort) => {
+  const own = (a, b) => RANK_OF[a.section] - RANK_OF[b.section] || order(a.section)(a, b);
+  const cmp = SORTS[sort?.by]?.cmp;
+  if (!SORTS[sort?.by]?.all || !cmp) return (a, b) => RANK_OF[a.section] - RANK_OF[b.section] || orderIn(a.section, sort)(a, b);
+  const sign = sort.dir === "desc" ? -1 : 1;
+  return (a, b) => sign * cmp(a, b) || own(a, b);
+};
 
 // Whether every word typed is in one of these, any case (Shepherdr's matches(): its lists' filters).
 export function matches(q, ...fields) {

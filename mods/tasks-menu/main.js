@@ -1,12 +1,15 @@
 // The Tasks panel's small menus (mods/tasks), as popups at the pointer in the look of Herdr's
 // own menu. props().menu:
 //   "group"   the header's ⋯: group the list For you, by space or by status (shared "tasks.group",
-//             kept; props().current, the panel's grouping now: core/tasks.js groupNow), then sort the To do
-//             group by Name, Key or Created, ascending or descending (shared "tasks.sort" = { by, dir },
-//             props().sort; core/tasks.js SORTS)
+//             kept; props().current, the panel's grouping now: core/tasks.js groupNow), then Sort by Default, Name,
+//             Key, Created (the To do group) or Priority (every group), Ascending or Descending (shared "tasks.sort" =
+//             { by, dir }; MSHEP-1's plain "priority" string still reads; core/tasks.js SORTS)
 //   "filter"  the filter row's More: the statuses that don't get a chip of their own;
 //             props().items = [{ key, label, count }], props().current. A pick goes to the
 //             panel as shared "tasks.filterreq" = { key, at }.
+//   "priority" a row's flag (MSHEP-1): P0 Urgent .. P4 Backlog or No priority for the task props().ref (herdr-task
+//             edit --priority on props().machine and folder); props().current says which is set now. The group menu
+//             also holds Sort by (below).
 //   "row"     a task row's right-click: Pin or Unpin (props().on) the task props().key, in shared
 //             "tasks.pinned" (mods/tasks keeps the same list). A task not started yet (props().status
 //             todo, queued or scheduled) also starts later (SHEP-38): herdr-task edit --in / --at on
@@ -22,6 +25,9 @@ import { taskMenu } from "./core/menus.js";
 import { settle } from "./core/pending.js";
 import { SORTS, SORT_DIRS, sortNow } from "./core/tasks.js";
 
+// P0 Urgent .. P4 Backlog, as the web's picker words them (mods/tasks/priority.js)
+const LEVELS = [["p0", "P0", "Urgent"], ["p1", "P1", "High"], ["p2", "P2", "Medium"], ["p3", "P3", "Low"], ["p4", "P4", "Backlog"]];
+
 // Shepherdr's GROUP_WORDS (core/tasks.js GROUP_BY).
 const GROUPS = [{ key: "you", label: "For you" }, { key: "space", label: "Space" }, { key: "status", label: "Status" }];
 
@@ -31,12 +37,14 @@ function sections() {
   if (p.menu === "row") return rowSections(p);
   if (p.menu === "filter") return [{ title: null, items: p.items ?? [], current: p.current,
     pick: (key) => setShared("tasks.filterreq", { key, at: Date.now() }) }];
+  if (p.menu === "priority") return [{ title: null, items: [...LEVELS.map(([k, n, w]) => ({ key: k, label: `${n} ${w}` })), { key: "none", label: "No priority" }],
+    current: p.current ?? "none", pick: (key) => setPriority(p, key) }];
   const current = GROUPS.some((g) => g.key === p.current) ? p.current : "you";
   // A pick of the key keeps the direction, and the reverse.
   const sort = sortNow(shared);
   const items = (o) => Object.entries(o).map(([key, v]) => ({ key, label: v.label ?? v }));
   return [{ title: "Group by", items: GROUPS, current, pick: (key) => setShared("tasks.group", key) },
-    { title: "Sort to do by", items: items(SORTS), current: sort.by, pick: (by) => setShared("tasks.sort", { by, dir: sortNow(shared).dir }) },
+    { title: "Sort by", items: items(SORTS), current: sort.by, pick: (by) => setShared("tasks.sort", { by, dir: sortNow(shared).dir }) },
     { title: "Order", items: items(SORT_DIRS), current: sort.dir, pick: (dir) => setShared("tasks.sort", { by: sortNow(shared).by, dir }) }];
 }
 
@@ -54,6 +62,19 @@ function rowSections(p) {
       icon: it.icon === "play" ? "mods/tasks/play.svg" : `mods/workspace-chrome/${it.icon}.svg` });
   }
   return out.filter((s) => s.items.length);
+}
+
+// A task's priority, saved through herdr-task as the web's picker does; what it refuses shows as a toast.
+function setPriority(p, level) {
+  const cli = (a) => exec(`${appHome()}/mods/tasks/bin/herdr-task`, a);
+  cli([...(p.machine ? ["--on", p.machine] : []), "edit", p.ref, "--priority", level, "--json", "--folder", p.folder])
+    .then((r) => settle(cli, r))
+    .then((r) => {
+      let out = null;
+      try { out = JSON.parse(r.stdout || "null"); } catch {}
+      if (r.code !== 0 || !out || out.error) toast({ level: "error", title: `Couldn't set ${p.ref}'s priority`, body: out?.error || r.stderr?.trim() || "herdr-task refused it." });
+    })
+    .catch((e) => toast({ level: "error", title: `Couldn't set ${p.ref}'s priority`, body: String(e?.message ?? e) }));
 }
 
 function rowPick(p, key) {

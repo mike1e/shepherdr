@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { GROUP_MENU_HEIGHT, todoOrder, orderIn, sortNow, sortWords, place, queueReason, reportOf, estimated, order, ago, autoPrefix, refOf, taskKey, matches, busyAgain, secondLine, leftOf, ORDER, STATUS, WORKING_AGAIN, GRACE_MS, fromLine, autoWhere, inSpace, holdingItems } from "./tasks.js";
+import { rowOrder, GROUP_MENU_HEIGHT, todoOrder, orderIn, sortNow, sortWords, place, queueReason, reportOf, estimated, order, ago, autoPrefix, refOf, taskKey, matches, busyAgain, secondLine, leftOf, ORDER, STATUS, WORKING_AGAIN, GRACE_MS, fromLine, autoWhere, inSpace, holdingItems } from "./tasks.js";
 import { REASONS, fit } from "./needs.js";
 
 const NOW = 1_800_000_000_000;
@@ -251,7 +251,7 @@ describe("sorting the To do group (Sort to do by)", () => {
   test("Default is today's order (by number)", () => {
     expect(ids({ by: "default", dir: "asc" })).toEqual(["HAT-2", "HAT-3", "AAA-7", "HAT-10"]);
     expect(ids(undefined)).toEqual(ids({ by: "default", dir: "asc" }));
-    expect(GROUP_MENU_HEIGHT).toBe(388);
+    expect(GROUP_MENU_HEIGHT).toBe(8 + 3 * 28 + (3 + 5 + 2) * 32 + 2 * 4);
   });
   test("Name is case-insensitive, ties keep today's order, in both directions", () => {
     expect(ids({ by: "name", dir: "asc" })).toEqual(["HAT-2", "AAA-7", "HAT-10", "HAT-3"]);
@@ -270,6 +270,19 @@ describe("sorting the To do group (Sort to do by)", () => {
     const done = [{ task: { id: 1, done_at: 1 } }, { task: { id: 2, done_at: 2 } }];
     expect([...done].sort(orderIn("done", { by: "name", dir: "desc" })).map((r) => r.task.id)).toEqual([2, 1]);
   });
+  test("Priority (MSHEP-1) orders every group: P0 first, unflagged last, ties in status order; Descending reverses", () => {
+    const p = (id, section, priority) => ({ list: L("X"), section, task: { id, priority } });
+    const rows2 = [p(1, "working"), p(2, "done", "p0"), p(3, "todo", "p2"), p(4, "working", "p0"), p(5, "todo", "p2")];
+    const got = (sort) => [...rows2].sort(rowOrder(sort)).map((r) => r.task.id);
+    expect(got({ by: "default", dir: "asc" })).toEqual([1, 4, 3, 5, 2]);
+    expect(got({ by: "priority", dir: "asc" })).toEqual([4, 2, 3, 5, 1]);
+    expect(got({ by: "priority", dir: "desc" })).toEqual([1, 3, 5, 4, 2]);
+    expect(sortWords({ by: "priority", dir: "asc" })).toBe("Priority ↑");
+  });
+  test("MSHEP-1's saved plain string still reads", () => {
+    expect(sortNow((k) => (k === "tasks.sort" ? "priority" : undefined))).toEqual({ by: "priority", dir: "asc" });
+    expect(sortNow((k) => (k === "tasks.sort" ? "default" : undefined)).by).toBe("default");
+  });
   test("the saved choice: Default until chosen, unknown means Default, the words", () => {
     const of = (v) => sortNow((k) => (k === "tasks.sort" ? v : undefined));
     expect(of(undefined)).toEqual({ by: "default", dir: "asc" });
@@ -278,6 +291,6 @@ describe("sorting the To do group (Sort to do by)", () => {
     expect(of({ by: "default", dir: "desc" }).dir).toBe("desc");
     expect(of({ by: "name" })).toEqual({ by: "name", dir: "asc" });
     expect(sortWords(of(undefined))).toBeNull();
-    expect(sortWords(of({ by: "created", dir: "desc" }))).toBe("Created ↓");
+    expect(sortWords(of({ by: "created", dir: "desc" }))).toBe("To do: Created ↓");
   });
 });
