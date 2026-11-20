@@ -26,20 +26,39 @@ class CodexFromLogs(unittest.TestCase):
     def setUp(self):
         self.home = tempfile.mkdtemp()
 
-    def log(self, day, name, *lines, raw=""):
+    def log(self, day, name, *lines, raw="", touched=None):
         d = os.path.join(self.home, "sessions", *day.split("/"))
         os.makedirs(d, exist_ok=True)
-        with open(os.path.join(d, "rollout-%s.jsonl" % name), "w") as f:
+        path = os.path.join(d, "rollout-%s.jsonl" % name)
+        with open(path, "w") as f:
             f.write("\n".join(lines) + ("\n" if lines else "") + raw)
+        if touched:
+            os.utime(path, (touched, touched))
 
     def read(self):
         return machine.codex_from_logs(self.home, NOW)
 
     def test_newest_log_wins(self):
-        self.log("2026/11/19", "a", line(win(80, 300, LATER)))
-        self.log("2026/11/20", "a", line(win(10, 300, LATER)))
-        self.log("2026/11/20", "b", line(win(20, 300, LATER)), line(win(30, 300, LATER)))
+        self.log("2026/11/19", "a", line(win(80, 300, LATER), ts="2026-11-19T10:00:00Z"))
+        self.log("2026/11/20", "a", line(win(10, 300, LATER), ts="2026-11-20T10:00:00Z"))
+        self.log("2026/11/20", "b", line(win(20, 300, LATER), ts="2026-11-20T11:00:00Z"),
+                 line(win(30, 300, LATER), ts="2026-11-20T12:00:00Z"))
         self.assertEqual(self.read()["windows"][0]["used"], 30)
+
+    def test_older_session_logging_later_wins(self):
+        self.log("2026/11/19", "a", line(win(60, 300, LATER), ts="2026-11-20T15:00:00Z"))
+        self.log("2026/11/20", "a", line(win(10, 300, LATER), ts="2026-11-20T10:00:00Z"))
+        self.assertEqual(self.read()["windows"][0]["used"], 60)
+
+    def test_many_recent_sessions_without_limits(self):
+        self.log("2026/11/01", "old", line(win(33, 300, LATER)))
+        for i in range(12):
+            self.log("2026/11/20", "s%02d" % i, '{"type":"event_msg"}')
+        self.assertEqual(self.read()["windows"][0]["used"], 33)
+
+    def test_entry_before_a_long_tail(self):
+        self.log("2026/11/20", "a", line(win(44, 300, LATER)), *(["x" * 1000] * 3000))
+        self.assertEqual(self.read()["windows"][0]["used"], 44)
 
     def test_five_hour_and_weekly(self):
         self.log("2026/11/20", "a", line(win(5, 300, LATER), win(19, 10080, LATER + 5)))
@@ -51,7 +70,7 @@ class CodexFromLogs(unittest.TestCase):
 
     def test_at_is_when_codex_logged_it(self):
         self.log("2026/11/20", "a", line(win(5, 300, LATER), ts="2026-11-20T20:51:30.646Z"))
-        self.assertEqual(self.read()["at"], 1795207890000)
+        self.assertEqual(self.read()["at"], 1795207890646)
 
     def test_null_secondary(self):
         self.log("2026/11/20", "a", line(win(19, 10080, LATER), None))
@@ -77,7 +96,7 @@ class CodexFromLogs(unittest.TestCase):
         self.log("2026/11/20", "a", line(win(7, 300, LATER)), raw=line(win(99, 300, LATER))[:60])
         self.assertEqual(self.read()["windows"][0]["used"], 7)
 
-    def test_big_log_reads_only_the_tail(self):
+    def test_big_log(self):
         self.log("2026/11/20", "a", *(["x" * 1000] * 2000), line(win(42, 300, LATER)))
         self.assertEqual(self.read()["windows"][0]["used"], 42)
 
@@ -113,7 +132,9 @@ class CodexFallsBack(unittest.TestCase):
         os.remove(os.path.join(self.home, "sessions", "2026", "11", "20", "rollout-a.jsonl"))
         fail = {"state": "unknown", "why": "Couldn't run it"}
         with mock.patch.object(machine, "_live_codex", return_value=fail):
-            self.assertIs(machine.codex(), fail)
+            got = machine.codex()
+        self.assertIn("Couldn't run it", got["why"])
+        self.assertIn("no Codex session here has logged", got["why"])
         with mock.patch.object(machine, "_live_codex", return_value=machine.DUE):
             self.assertIn("No Codex session here has logged", machine.codex()["why"])
 

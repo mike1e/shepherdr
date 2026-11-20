@@ -581,8 +581,9 @@ def _live_codex(binary):
         close()
 
 
-LOG_FILES = 8
-LOG_TAIL = 256 * 1024
+LOG_FILES = 60
+LOG_CHUNK = 256 * 1024
+LOG_BYTES = 8 * 1024 * 1024
 
 
 def _codex_home():
@@ -590,7 +591,7 @@ def _codex_home():
 
 
 def _session_logs(home, limit=LOG_FILES):
-    """The newest rollout files first (their names carry the start time), at most `limit`."""
+    """The newest rollout files by name (they carry the start time), at most `limit`, then newest-touched first."""
     root = os.path.join(home, "sessions")
     found = []
 
@@ -605,27 +606,53 @@ def _session_logs(home, limit=LOG_FILES):
                 day = os.path.join(root, y, m, d)
                 found += [os.path.join(day, f) for f in newest(day) if f.startswith("rollout-") and f.endswith(".jsonl")]
                 if len(found) >= limit:
-                    return found[:limit]
-    return found[:limit]
+                    return _by_touch(found[:limit])
+    return _by_touch(found)
 
 
-def _tail_lines(path):
-    """The last LOG_TAIL bytes of a file as lines, newest last; a cut first line is dropped."""
+def _by_touch(paths):
+    out = []
+    for p in paths:
+        try:
+            out.append((os.path.getmtime(p), p))
+        except OSError:
+            pass
+    return sorted(out, reverse=True)
+
+
+def _lines_backwards(path):
+    """A file's lines, last first, read in chunks from the end, at most LOG_BYTES of it."""
     with open(path, "rb") as f:
         f.seek(0, 2)
-        size = f.tell()
-        f.seek(max(0, size - LOG_TAIL))
-        data = f.read()
-    lines = data.split(b"\n")
-    if size > LOG_TAIL:
-        lines = lines[1:]
-    return lines
+        end = f.tell()
+        floor = max(0, end - LOG_BYTES)
+        carry = b""
+        while end > floor:
+            start = max(floor, end - LOG_CHUNK)
+            f.seek(start)
+            parts = (f.read(end - start) + carry).split(b"\n")
+            end = start
+            carry = parts[0]  # maybe the end of a line that started in an earlier chunk
+            for raw in reversed(parts[1:]):
+                yield raw
+        if floor == 0:
+            yield carry  # the file's first line, whole
 
 
-def _logged_limits(path):
-    """The last complete rate_limits entry in one log: (logged_at_ms, rate_limits) or None."""
+def _stamp(text, fallback):
     import datetime
-    for raw in reversed(_tail_lines(path)):
+    try:
+        t = datetime.datetime.fromisoformat(str(text).replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=datetime.timezone.utc)
+        return int(t.timestamp() * 1000)
+    except ValueError:
+        return fallback
+
+
+def _logged_limits(path, touched):
+    """The last complete rate_limits entry in one log: (logged_at_ms, rate_limits) or None."""
+    for raw in _lines_backwards(path):
         if b'"rate_limits"' not in raw:
             continue
         try:
@@ -635,44 +662,45 @@ def _logged_limits(path):
         rl = ((msg.get("payload") or {}).get("rate_limits")) if isinstance(msg, dict) else None
         if not isinstance(rl, dict) or not any(isinstance(rl.get(k), dict) for k in ("primary", "secondary")):
             continue
-        try:
-            stamp = datetime.datetime.strptime(str(msg.get("timestamp"))[:19], "%Y-%m-%dT%H:%M:%S")
-            at = int(stamp.replace(tzinfo=datetime.timezone.utc).timestamp() * 1000)
-        except ValueError:
-            at = int(os.path.getmtime(path) * 1000)
-        return at, rl
+        return _stamp(msg.get("timestamp"), int(touched * 1000)), rl
     return None
 
 
+NO_LOGGED = "No Codex session here has logged its limits yet"
+
+
 def codex_from_logs(home, at=None):
-    """Codex's own session logs carry the limits it last saw: no token, no network."""
+    """Codex's own session logs carry the limits it last saw: no token, no network. The entry logged last wins."""
     at = now_ms() if at is None else at
-    for path in _session_logs(home):
+    best = None
+    for touched, path in _session_logs(home):
+        if best and best[0] >= touched * 1000:
+            break  # nothing in this file or the older-touched ones can be newer
         try:
-            got = _logged_limits(path)
+            got = _logged_limits(path, touched)
         except OSError:
             continue
-        if not got:
+        if got and (not best or got[0] > best[0]):
+            best = got
+    if not best:
+        return {"state": "unknown", "why": NO_LOGGED}
+    logged, rl = best
+    windows = []
+    for w in (rl.get("primary"), rl.get("secondary")):
+        if not isinstance((w or {}).get("used_percent"), (int, float)):
             continue
-        logged, rl = got
-        windows, stale = [], 0
-        for w in (rl.get("primary"), rl.get("secondary")):
-            if not isinstance((w or {}).get("used_percent"), (int, float)):
-                continue
-            x = {"name": _window_name(w.get("window_minutes")), "used": w["used_percent"]}
-            if isinstance(w.get("resets_at"), (int, float)):
-                x["resets_at"] = int(w["resets_at"] * 1000)
-                if x["resets_at"] <= at:
-                    stale += 1
-                    continue
-            windows.append(x)
-        if not windows:
-            return {"state": "unknown", "at": logged,
-                    "why": "Codex's last logged limits have since reset; they update when Codex next runs here"}
-        plan = rl.get("plan_type")
-        return dict({"state": "ok", "windows": windows, "at": logged},
-                    **({"plan": plan[:30]} if isinstance(plan, str) and plan != "unknown" else {}))
-    return {"state": "unknown", "why": "No Codex session here has logged its limits yet"}
+        x = {"name": _window_name(w.get("window_minutes")), "used": w["used_percent"]}
+        if isinstance(w.get("resets_at"), (int, float)):
+            x["resets_at"] = int(w["resets_at"] * 1000)
+            if x["resets_at"] <= at:
+                continue  # refilled since Codex logged it
+        windows.append(x)
+    if not windows:
+        return {"state": "unknown", "at": logged,
+                "why": "Codex's last logged limits have since reset; they update when Codex next runs here"}
+    plan = rl.get("plan_type")
+    return dict({"state": "ok", "windows": windows, "at": logged},
+                **({"plan": plan[:30]} if isinstance(plan, str) and plan != "unknown" else {}))
 
 
 def codex():
@@ -685,7 +713,9 @@ def codex():
         return live
     logged = codex_from_logs(home)
     # Numbers, or a stale log's word, beat "due for renewal"; another failure keeps its own reason.
-    return logged if logged["state"] == "ok" or "at" in logged or live is DUE else live
+    if logged["state"] == "ok" or "at" in logged or live is DUE:
+        return logged
+    return dict(live, why="%s; %s" % (live.get("why") or "Couldn't read it", NO_LOGGED[0].lower() + NO_LOGGED[1:]))
 
 
 def limits():
