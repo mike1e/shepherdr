@@ -1256,6 +1256,24 @@
         "usage.ts",
         "asks.ts"
       ]
+    },
+    {
+      "id": "herdr-tui",
+      "addon": "herdr-tui",
+      "title": "Herdr TUI layout",
+      "core": ["machines"],
+      "herdr": {
+        "mods": ["herdr-tui-usage", "herdr-tui-prefix", "herdr-tui-todo"]
+      },
+      "web": {
+        "files": ["plugins/health/client.tsx"]
+      },
+      "forms": {
+        "herdr": "Layout Herdr TUI (Ctrl+Shift+L): TUI sidebar with plan usage, Ctrl+B prefix keys",
+        "desktop": "Not a window layout: the web app shows the same plan usage in a machine's details",
+        "tablet": "Same",
+        "phone": "Same"
+      }
     }
   ]
 }

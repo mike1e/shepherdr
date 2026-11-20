@@ -40,3 +40,7 @@ Settings says which.
 
 Splitting the always-on add-ons out of the panels they live in (Chat out of the pane, Tasks out of the side panel)
 comes after 3.1.44, with standalone add-on mods listed on herdr.dev.
+
+## Herdr TUI layout
+
+A second window layout, "Herdr TUI" (`layouts/herdr-tui.json`, Ctrl+Shift+L): the herdr TUI's spaces and agents sidebar with Claude Code and Codex plan usage (`herdr-tui-usage`), Ctrl+B prefix keys (`herdr-tui-prefix`), and Shepherdr's Tasks and Assistant panel on the right.

@@ -11,7 +11,7 @@
   "core": {
     "title": "Core",
     "about": "The Shepherdr layout: sidebar, tab bar, chat pane header, status bar, toasts, menus, dialogs and these settings.",
-    "layouts": ["shepherdr"],
+    "layouts": ["shepherdr", "herdr-tui"],
     "mods": ["spaces-chat", "tabs-tasks", "pane-chat", "workspace-chrome-shepherdr", "workspace-status-chat", "toasts",
       "menu-tasks", "new-menu-tasks", "confirm-chat", "prompt-chat", "newspace", "shepherdr-settings"],
     "blocks": ["brand", "spaces", "sidebar-footer", "tabs", "status", "toasts"],
@@ -21,7 +21,7 @@
       "global alt-shift-enter", "global alt-escape", "global ctrl-alt-left", "global ctrl-alt-down", "global ctrl-alt-up",
       "global ctrl-alt-right", "terminal ctrl-v"],
     "helpers": ["shepherdr"],
-    "uses_shipped": ["changes", "files", "workspace-chrome"]
+    "uses_shipped": ["changes", "files", "workspace-chrome", "spaces", "agents"]
   },
   "addons": [
     { "id": "tasks", "title": "Tasks", "switch": false,
@@ -46,6 +46,9 @@
       "about": "Jump (Ctrl+K) and the keys list (Ctrl+Shift+?).",
       "mods": ["jump", "keybinds"],
       "keys": ["global ctrl-k", "global ctrl-shift-k", "global ctrl-shift-/", "global ctrl-shift-?"] },
+    { "id": "herdr-tui", "title": "Herdr TUI layout", "switch": false,
+      "about": "The herdr TUI's look (Ctrl+Shift+L): workspaces and agents sidebar with plan usage, prefix keys (Ctrl+B), an Inbox to-do list, Assistant and Tasks beside the panes.",
+      "mods": ["herdr-tui-usage", "herdr-tui-prefix", "herdr-tui-todo"], "keys": ["layout:herdr-tui ctrl-b"] },
     { "id": "artifacts", "title": "Artifacts", "switch": true,
       "about": "Reports and draft screens from agents, beside the chat, with markup. Off: no Artifacts panel button.",
       "mods": ["artifacts", "task-artifacts"], "blocks": ["artifacts", "artifacts-list", "artifacts-view", "tasks-thread-artifacts"], "helpers": ["herdr-artifact"], "web": ["artifacts"] },

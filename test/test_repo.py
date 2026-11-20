@@ -51,6 +51,14 @@ class Repo(unittest.TestCase):
         self.assertEqual(used - ours - shipped, set(), "the layout uses a mod nobody ships")
         self.assertEqual(d["id"], "root")
 
+    def test_herdr_tui_layout_uses_only_shipped_mods(self):
+        text = open(J("layouts", "herdr-tui.json")).read()
+        self.assertEqual(json.loads(text)["id"], "root")
+        used = set(re.findall(r'"mod":\s*"([^"]+)"', text))
+        shipped = set(self.addons["core"]["uses_shipped"])
+        self.assertEqual(used - set(os.listdir(J("mods"))) - shipped, set())
+        self.assertIn("herdr-tui", self.addons["core"]["layouts"])
+
     def test_lone_child_containers_fill_their_space(self):
         # Herdr keeps a saved px size for a resizable container's child (SHEP-193, GitHub #915): a row or column with
         # one child must not be resizable, and that child takes the whole space by weight, never a fixed size.
@@ -71,7 +79,7 @@ class Repo(unittest.TestCase):
     def test_keys_name_our_layout_and_parse(self):
         keys = json.load(open(J("keys.json")))
         layouts = [c for c in keys if c.startswith("layout:")]
-        self.assertEqual(layouts, ["layout:shepherdr"])
+        self.assertEqual(layouts, ["layout:shepherdr", "layout:herdr-tui"])
         for a in [self.addons["core"]] + self.addons["addons"]:
             for k in a.get("keys", []):
                 ctx, key = k.split(" ", 1)
