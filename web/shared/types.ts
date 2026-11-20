@@ -1321,7 +1321,11 @@ export type Action =
   /** MSHEP-1: set a task's priority flag (herdr-task edit --priority); 'none' clears it */
   | { type: 'priority'; chat: string; priority: Priority | 'none' }
   /** delete a task: its agent, herdr space, worktree, branch, chat and record; refused while it holds work, unless force */
-  | { type: 'delete'; chat: string; force?: boolean }
+  | { type: 'delete'; chat: string; force?: boolean; yes?: 1 | 2; worktree?: boolean }
+  /** MSHEP-12: send a started, queued or scheduled task back to To do (herdr-task dequeue); yes stops a running agent */
+  | { type: 'dequeue'; chat: string; yes?: boolean }
+  /** MSHEP-12: what removing (op 'rm') or dequeueing a task would stop, keep and lose (herdr-task ... --check) */
+  | { type: 'task-check'; chat: string; op: 'rm' | 'dequeue' }
   /** forget a space (shepherdr space remove): its folder and code stay on disk, its coordinator closes, and its open
       tasks and chat come back if it is added again; refused while one of its tasks is working */
   | { type: 'space-remove'; place: string }

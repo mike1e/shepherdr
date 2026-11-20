@@ -6,7 +6,7 @@
 // the window's too); the Assistant does the rest. Done tasks archive themselves: the Archived row at the bottom opens them.
 import clsx from 'clsx'
 import { openAccept, useAccepting } from '@client/screens/Accept.tsx'
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react'
 import {
   archivedIn,
   definePlugin,
@@ -27,6 +27,9 @@ import {
   pinTask,
   placeOf,
   scheduleTask,
+  checkTask,
+  dequeueTask,
+  removeTask,
   registry,
   setFilter,
   setGroup,
@@ -41,6 +44,7 @@ import {
   useUI,
   type GroupBy,
   type ListView,
+  type TaskFacts,
   type TaskGroup,
 } from '@client/kernel.ts'
 import { keysMoved } from '@client/focus.ts'
@@ -51,7 +55,10 @@ import {
   BackIcon,
   CheckIcon,
   ClockIcon,
+  DeleteIcon,
   DownIcon,
+  Primary,
+  ReplyIcon,
   Empty,
   FilterBox,
   HashIcon,
@@ -79,7 +86,7 @@ import {
 import { needsYou, type Waiting } from '@shared/needs-you.ts'
 import { doneNewestFirst, machineName, type Automation, type Machine, type Place, type Snapshot, type Task } from '@shared/types.ts'
 import { useFlip } from '@client/motion.ts'
-import { RowMenu, useRowMenu, type RowMenuState } from '@client/rowmenu.tsx'
+import { Dialog, RowMenu, useRowMenu, type RowMenuState } from '@client/rowmenu.tsx'
 import * as MN from '@core/menus.js'
 import * as TK from '@core/tasks.js'
 import * as ND from '@core/needs.js'
@@ -218,7 +225,7 @@ function Line({ flip, sel = false, kb = false, glyph, ref_, title, sub, left, le
   )
 }
 
-type MenuEntry = { id?: string; label?: string; icon?: string; heading?: string; sep?: boolean; at?: string; in?: string; typed?: boolean }
+type MenuEntry = { danger?: boolean; id?: string; label?: string; icon?: string; heading?: string; sep?: boolean; at?: string; in?: string; typed?: boolean }
 const OTHER = MN.SCHEDULE_OTHER as { placeholder: string; label: string; button: string }
 
 /** A task's one menu, in its row's ⋯ and its chat's, as 3.0's (core/menus.js taskMenu): Pin or Unpin; a task not started
@@ -236,6 +243,19 @@ function TaskActions({ task: t, close }: { task: Task; close: () => void }) {
     setBusy(false)
     if (r?.ok === false) setError(r.error ?? "Couldn't schedule it.")
     else close()
+  }
+  // Dequeue: asks first only when an agent is running (what it is doing now may be lost); else it goes at once
+  const dequeue = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const f = await checkTask(t, 'dequeue')
+      if (f.agents.length) { close(); askTask({ task: t, op: 'dequeue' }); return }
+      const r = await dequeueTask(t)
+      if (r?.ok === false) setError(r.error ?? "Couldn't send it back to To do.")
+      else close()
+    } catch (e) { setError((e as Error).message) }
+    setBusy(false)
   }
   const items = (MN.taskMenu as (o: object) => MenuEntry[])({ pinned: !!t.pinned, status: t.archived ? null : t.status })
   return (
@@ -262,6 +282,8 @@ function TaskActions({ task: t, close }: { task: Task; close: () => void }) {
           )
         if (it.id === 'start-now') return <MenuItem key="now" disabled={busy} icon={<PlayIcon className={ic} />} onClick={() => void go({ now: true })}>{it.label}</MenuItem>
         if (it.id === 'unschedule') return <MenuItem key="off" disabled={busy} icon={<XIcon className={ic} />} onClick={() => void go({ off: true })}>{it.label}</MenuItem>
+        if (it.id === 'dequeue') return <MenuItem key="dequeue" disabled={busy} icon={<ReplyIcon className={ic} />} onClick={() => void dequeue()}>{it.label}</MenuItem>
+        if (it.id === 'remove') return <MenuItem key="remove" disabled={busy} icon={<DeleteIcon className={ic} />} onClick={() => { close(); askTask({ task: t, op: 'rm' }) }}>{it.label}</MenuItem>
         return (
           <MenuItem key={it.label} icon={t.pinned ? <UnpinIcon className={ic} /> : <PinTaskIcon className={ic} />} onClick={() => { close(); void pinTask(t, !t.pinned).catch(() => undefined) }}>
             {it.label}
@@ -270,6 +292,47 @@ function TaskActions({ task: t, close }: { task: Task; close: () => void }) {
       })}
       {error && !typing ? <p role="alert" className="w-0 min-w-full px-2 pt-1 pb-1.5 text-[0.75rem]/4 text-need-fg phone:px-3 phone:text-[0.8125rem]/5">{error}</p> : null}
     </>
+  )
+}
+
+/** MSHEP-12: the question Remove (always) and Dequeue (with an agent running) ask first, in core/menus.js's words. It reads
+ *  what the task holds with herdr-task's --check: an open pull request needs a second yes, a worktree with nothing unsaved
+ *  can go along with the task, one with unsaved work never does. */
+type Ask = { task: Task; op: 'rm' | 'dequeue' } | null
+let asked: Ask = null
+const askers = new Set<() => void>()
+const askTask = (a: Ask) => { asked = a; askers.forEach((f) => f()) }
+
+function AskTask() {
+  const ask = useSyncExternalStore((f) => (askers.add(f), () => void askers.delete(f)), () => asked)
+  const [facts, setFacts] = useState<TaskFacts | null>(null)
+  const [again, setAgain] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    setFacts(null); setAgain(false); setBusy(false); setError('')
+    if (ask) checkTask(ask.task, ask.op).then(setFacts, (e: Error) => setError(e.message))
+  }, [ask])
+  if (!ask) return null
+  const { task: t, op } = ask
+  const q = facts ? (op === 'rm' ? MN.removeAsk(facts) : MN.dequeueAsk(facts)) : null
+  const go = async (worktree: boolean) => {
+    if (op === 'rm' && q?.pr && !again) return setAgain(true)
+    setBusy(true); setError('')
+    const r = await (op === 'rm' ? removeTask(t, { yes: q?.pr ? 2 : 1, worktree }) : dequeueTask(t, true)).catch((e: Error) => ({ ok: false, error: e.message }))
+    if (r?.ok === false) { setError(r.error ?? 'It was refused.'); setBusy(false) } else askTask(null)
+  }
+  return (
+    <Dialog title={again ? `Remove ${refOf(t.id)} anyway?` : q?.title ?? (op === 'rm' ? `Remove ${refOf(t.id)}?` : `Send ${refOf(t.id)} back to To do?`)} onCancel={() => askTask(null)} safe
+      buttons={<>
+        {op === 'rm' && q?.worktreeVerb && !again ? <Primary soft disabled={busy} onClick={() => void go(true)}>{q.worktreeVerb}</Primary> : null}
+        <Primary disabled={busy || !q} onClick={() => void go(false)}>{again ? 'Remove anyway' : q?.verb ?? 'Remove'}</Primary>
+      </>}>
+      <div className="flex flex-col gap-2 text-pretty">
+        {q ? (again ? <p>{q.prLine}</p> : q.lines.map((l: string) => <p key={l}>{l}</p>)) : error ? null : <p>Reading…</p>}
+        {error ? <p role="alert" className="text-need-fg">{error}</p> : null}
+      </div>
+    </Dialog>
   )
 }
 
@@ -742,6 +805,7 @@ export default definePlugin({
     reg.views.tasks = TaskList
     reg.views.tasksMenu = TasksMenu
     reg.views.taskActions = TaskActions
+    reg.overlays.push(AskTask)
     // the window's Automations group is the list's own (last, before Archived): only the Archived row is a footer
     reg.tasksFooter.push(ArchivedLink)
   },

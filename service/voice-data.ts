@@ -46,13 +46,14 @@ export const NOT_DATA: Record<string, string> = {
   "api:commands": "the / picker's command list above the message box",
   "api:reach": "the # picker's spaces above the message box (the same spaces as the snapshot's places)",
   "api:machines": "Find machines (Settings › Machines): reading it lists hosts nobody linked, pressing it logs in to them; only the person starts it (#967)",
+  "action:task-check": "the question Remove and Dequeue ask first (what a task holds); a look has no use for it",
   "action:earlier": "a chat's older messages: look chat reads further back itself",
 };
 
 /** The web app's actions that change something (act, send or screen do them), not data to read. */
 export const WRITES = ["plugin", "limits-check", "send", "react", "secret", "secret-saved", "answer", "page-send", "page-note", "artifact-send",
   "artifact-note", "artifact-say", "artifact-delete", "browser-notes", "mode", "autopilot-run", "setting", "accept", "close", "delete", "archive",
-  "reopen", "task-resume", "schedule", "priority", "stop", "stop-job", "steer", "pin", "rename", "order", "move", "section", "space-remove", "space-commit",
+  "reopen", "dequeue", "task-resume", "schedule", "priority", "stop", "stop-job", "steer", "pin", "rename", "order", "move", "section", "space-remove", "space-commit",
   "assistant-close", "tab-new", "tab-close", "tab-rename", "tab-switch", "tab-move", "restart", "model-pin", "rewind", "fork", "handback", "held-drop",
   "held-now", "read", "keys", "text", "dictation", "call", "machine-add", "machine-mac-open", "secrets-move", "serve-from", "pause", "usage",
   "automation", "effort", "model"];
