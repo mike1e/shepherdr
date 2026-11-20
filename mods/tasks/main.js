@@ -280,7 +280,7 @@ export default class Tasks extends View {
     if (fq?.at && fq.at !== this.filterAt) { this.filterAt = fq.at; this.pickFilter(fq.key); }
     // Ctrl+K's jump (mods/jump) to a task with no chat to open: the list, searched for it, all statuses.
     const sq = shared("tasks.searchreq");
-    if (sq?.at && sq.at !== this.searchAt) { this.searchAt = sq.at; this.pickFilter("all"); this.archivedOpen = false; this.query.set_value(String(sq.q ?? "")); this.jumpQ = String(sq.q ?? ""); }
+    if (sq?.at && sq.at !== this.searchAt) { this.searchAt = sq.at; this.spaceSel = null; this.pickFilter("all"); this.archivedOpen = false; this.query.set_value(String(sq.q ?? "")); this.jumpQ = String(sq.q ?? ""); }
     // Shepherdr settings' "Status filters" off (shared "tasks.filters" false): no row, all shown (This space too).
     const filters = shared("tasks.filters") !== false;
     // This space: the shown space's only; not for Ctrl+K's jump while its words are still in the search field.
@@ -291,12 +291,14 @@ export default class Tasks extends View {
     let placed = this.lists.flatMap((l) => l.tasks.map((task) => this.place(l, task)));
     // Each task's status as its list says it now, archived ones too: a Needs-you item the list has moved past is stale.
     const truth = new Map(placed.map((p) => [`${p.list.machine ?? ""}:${p.list.folder}:${refOf(p.list, p.task)}`, p]));
+    // Pins are pruned against every list, not the space picked (else another space's pins read as deleted).
+    const everyone = placed;
     if (here) placed = placed.filter((p) => inSpace(here, { machine: p.list.machine ?? null, folder: p.list.folder, space: p.task.space }));
     // Archived tasks (herdr-task: Done ones archive themselves after a while) leave every list and
     // count: only the Archived view and a search show them, the latest archived first.
     const archived = placed.filter((p) => this.shelved(p)).sort((a, b) => (b.task.archived ?? 0) - (a.task.archived ?? 0));
     placed = placed.filter((p) => !archived.includes(p));
-    this.prunePins(placed, cx);
+    this.prunePins(everyone.filter((p) => !this.shelved(p)), cx);
     // Needs you: asks, stuck agents, problems, failed automations (a task ready to merge is in Ready).
     let inbox = holdingItems(needs(), truth);
     if (here) inbox = inbox.filter((x) => this.needHere(here, x));
@@ -353,9 +355,9 @@ export default class Tasks extends View {
     // The filter row: All, then a chip for each status that holds something now.
     const count = (k) => (k === "needs" ? needRows.length : k === "automations" ? autos.length : tasksOf[k].length);
     // A chip picked stays picked while searching, even with nothing matching (its list says so).
-    const keep = filters && Boolean(q) && ORDER.includes(this.filter);
+    const keep = (filters || sel) && Boolean(q) && ORDER.includes(this.filter);
     const chips = ORDER.filter((k) => count(k) || (keep && k === this.filter));
-    const filter = filters && chips.includes(this.filter) ? this.filter : "all";
+    const filter = (filters || sel) && chips.includes(this.filter) ? this.filter : "all";
     // What rows say of where they are: their space, never their machine (SHEP-98: a quiet detail);
     // by space, nothing (the headings say it). For you's space rows sit under their heading (bare).
     this.names = filter === "all" && by === "space" ? { machine: false, space: false } : { machine: false, space: true };
