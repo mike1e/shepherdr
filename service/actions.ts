@@ -612,7 +612,7 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
     if (!r || !b.job.startsWith("b:") || !(await r.stopJob(b.job.slice(2)))) throw new Error("It isn't running any more.");
     return { ok: true };
   }
-  else if ((b?.type === "close" || b?.type === "delete" || b?.type === "archive" || b?.type === "reopen" || b?.type === "task-resume" || b?.type === "schedule" || b?.type === "priority") && typeof b.chat === "string") {
+  else if ((b?.type === "close" || b?.type === "delete" || b?.type === "archive" || b?.type === "reopen" || b?.type === "dequeue" || b?.type === "task-check" || b?.type === "task-resume" || b?.type === "schedule" || b?.type === "priority") && typeof b.chat === "string") {
     // a task's row menu: its chat key is "<task>/worker" (or 2.1's "/Agent")
     const t = compat.taskOf(b.chat.split("/")[0]);
     if (!t) throw new Error("That task isn't here any more.");
@@ -712,15 +712,29 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
       if (r.code !== 0 || out?.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || "herdr-task refused it." };
       return { ok: true };
     }
-    // the person's own calls on a task, as herdr-task makes them: done, removed, or back from the archive
-    case "close": case "delete": case "archive": case "reopen": {
+    // MSHEP-12: what a Remove or Dequeue would do (herdr-task rm / dequeue --check), for the question the web asks first
+    case "task-check": {
+      const { ref, folder, machine } = taskOf(b);
+      const r = await task([b.op === "dequeue" ? "dequeue" : "rm", ref, "--check"], folder, machine);
+      let out: any = null;
+      try { out = JSON.parse(r.stdout); } catch {}
+      if (r.code !== 0 || !out || out.error) throw new Error(out?.error || r.stderr.trim().split("\n").pop() || "herdr-task refused it.");
+      return out;
+    }
+    // the person's own calls on a task, as herdr-task makes them: done, removed (rm: --yes once, twice for an open pull
+    // request, --worktree to take its worktree and branch along when nothing in them is unsaved), sent back to To do
+    // (dequeue --yes: stops a running agent), or back from the archive
+    case "close": case "delete": case "dequeue": case "archive": case "reopen": {
       if (b.type === "archive" && b.on !== false) throw new Error("Done tasks archive themselves: Settings › Tasks › Archive Done after.");
       const { ref, folder, machine } = taskOf(b);
-      const r = await task([b.type === "close" ? "done" : b.type === "delete" ? "rm" : b.type === "reopen" ? "reopen" : "unarchive", ref], folder, machine);
+      const verb = b.type === "close" ? "done" : b.type === "delete" ? "rm" : b.type === "dequeue" ? "dequeue" : b.type === "reopen" ? "reopen" : "unarchive";
+      const extra = b.type === "delete" ? [...(b.yes ? ["--yes"] : []), ...(b.yes === 2 ? ["--yes"] : []), ...(b.worktree ? ["--worktree"] : [])]
+        : b.type === "dequeue" && b.yes ? ["--yes"] : [];
+      const r = await task([verb, ref, ...extra], folder, machine);
       let out: any = null;
       try { out = JSON.parse(r.stdout); } catch {}
       if (r.code !== 0 || out?.error) return { ok: false, error: out?.error || r.stderr.trim().split("\n").pop() || "herdr-task refused it." };
-      return { ok: true };
+      return { ok: true, ...(b.type === "delete" || b.type === "dequeue" ? { stopped: out?.stopped ?? [], worktree: out?.worktree ?? null, worktreeRemoved: !!out?.worktree_removed } : {}) };
     }
   }
   // 2.1 has more buttons than this service answers yet: they say so plainly

@@ -14,14 +14,17 @@
 //             "tasks.pinned" (mods/tasks keeps the same list). A task not started yet (props().status
 //             todo, queued or scheduled) also starts later (SHEP-38): herdr-task edit --in / --at on
 //             props().machine, folder and ref; a scheduled one Start now and Unschedule. What herdr-task
-//             refuses shows as a toast.
+//             refuses shows as a toast. MSHEP-12: a task that has started, is queued or scheduled also Dequeue (back to
+//             To do: herdr-task dequeue; asks first only while an agent runs), and every task Remove… (asks first).
+//   "ask"     the question Remove… and Dequeue ask (a dialog), worded by core/menus.js removeAsk / dequeueAsk from what
+//             herdr-task rm / dequeue --check says (props().op "rm" or "dequeue", machine, folder, ref).
 // ↑/↓ move, Enter picks, Esc closes.
 
 import { View, div } from "gpui-kit";
-import { v_flex } from "gpui-base";
-import { props, closeOverlay, theme, shared, setShared, exec, appHome } from "herdr";
-import { menuRow, heading, toast, TEXT } from "./ui.js";
-import { taskMenu } from "./core/menus.js";
+import { v_flex, h_flex } from "gpui-base";
+import { props, closeOverlay, openOverlay, theme, shared, setShared, exec, appHome } from "herdr";
+import { menuRow, heading, toast, button, red, TEXT } from "./ui.js";
+import { taskMenu, removeAsk, dequeueAsk } from "./core/menus.js";
 import { settle } from "./core/pending.js";
 import { SORTS, SORT_DIRS, sortNow } from "./core/tasks.js";
 
@@ -59,7 +62,7 @@ function rowSections(p) {
       checks: false, current: null, items: [], pick: (key) => rowPick(p, key) });
     if (it.sep || it.heading) continue;
     cur.items.push({ key: `${it.id}:${cur.items.length}`, label: it.label, at: it.at, in: it.in, id: it.id,
-      icon: it.icon === "play" ? "mods/tasks/play.svg" : `mods/workspace-chrome/${it.icon}.svg` });
+      icon: it.icon === "play" ? "mods/tasks/play.svg" : it.icon === "undo-2" ? "mods/tasks/reopen.svg" : `mods/workspace-chrome/${it.icon}.svg` });
   }
   return out.filter((s) => s.items.length);
 }
@@ -77,6 +80,28 @@ function setPriority(p, level) {
     .catch((e) => toast({ level: "error", title: `Couldn't set ${p.ref}'s priority`, body: String(e?.message ?? e) }));
 }
 
+// herdr-task, here or (--on) on the folder's machine, its JSON answer: { out, r }; what it refuses is out.error / stderr.
+const taskCli = (p, args) => {
+  const cli = (a) => exec(`${appHome()}/mods/tasks/bin/herdr-task`, a);
+  return cli([...(p.machine ? ["--on", p.machine] : []), ...args, "--json", "--folder", p.folder]).then((r) => settle(cli, r)).then((r) => {
+    let out = null;
+    try { out = JSON.parse(r.stdout || "null"); } catch {}
+    return { r, out, error: r.code !== 0 || !out || out.error ? out?.error || r.stderr?.trim() || "herdr-task refused it." : null };
+  });
+};
+
+// Remove… always asks; Dequeue only while an agent runs (what it is doing now may be lost).
+const openAsk = (p, op) => openOverlay({ mod: "tasks-menu", kind: "dialog", modal: true, width: 460, height: 300,
+  props: { menu: "ask", op, machine: p.machine, folder: p.folder, ref: p.ref } });
+function dequeue(p) {
+  const fail = (body) => toast({ level: "error", title: `Couldn't dequeue ${p.ref}`, body: String(body?.message ?? body) });
+  taskCli(p, ["dequeue", p.ref, "--check"]).then((c) => {
+    if (c.error) return fail(c.error);
+    if (c.out.agents?.length) return openAsk(p, "dequeue");
+    return taskCli(p, ["dequeue", p.ref]).then((d) => { if (d.error) fail(d.error); });
+  }).catch(fail);
+}
+
 function rowPick(p, key) {
   const it = rowSections(p).flatMap((s) => s.items).find((x) => x.key === key);
   if (!it) return;
@@ -86,6 +111,8 @@ function rowPick(p, key) {
     setShared("tasks.pinned", p.on ? rest : [...rest, p.key]);
     return;
   }
+  if (it.id === "remove") return openAsk(p, "rm");
+  if (it.id === "dequeue") return dequeue(p);
   const args = it.id === "start-now" ? ["start", p.ref, "--now"] : it.id.startsWith("agent:") ? ["start", p.ref, "--now", "--agent", it.id.slice(6)] : it.id === "unschedule" ? ["edit", p.ref, "--at", ""]
     : ["edit", p.ref, ...(it.in ? ["--in", it.in] : ["--at", it.at])];
   // herdr-task, here or (--on) on the folder's machine; the list shows the change on its next read.
@@ -105,6 +132,7 @@ const flat = () => sections().flatMap((s) => s.items.map((x) => ({ ...x, s })));
 
 export default class TasksMenu extends View {
   init(_props, cx) {
+    if (props()?.menu === "ask") return this.initAsk(cx);
     const s0 = sections()[0];
     this.at = Math.max(0, flat().findIndex((x) => x.s.title === s0.title && x.key === s0.current));
     this.keyed = false; // the ↑/↓ highlight shows only once a key moved it: opening lights no row
@@ -124,7 +152,52 @@ export default class TasksMenu extends View {
     closeOverlay(props()?.overlay);
   }
 
+  // The question (menu "ask"): what herdr-task says removing or dequeueing would stop, keep and lose, in core/menus.js's
+  // words. An open pull request asks a second time; a worktree with nothing unsaved can go with the task.
+  initAsk(cx) {
+    this.facts = null; this.again = false; this.busy = false; this.error = "";
+    this.handle = cx.focus_handle();
+    this.handle.focus();
+    const p = props();
+    taskCli(p, [p.op === "rm" ? "rm" : "dequeue", p.ref, "--check"]).then((c) => {
+      if (c.error) this.error = c.error; else this.facts = c.out;
+      cx.notify();
+    }).catch((e) => { this.error = String(e?.message ?? e); cx.notify(); });
+    this.cx = cx;
+  }
+
+  async goAsk(worktree) {
+    const p = props();
+    const q = p.op === "rm" ? removeAsk(this.facts) : dequeueAsk(this.facts);
+    if (p.op === "rm" && q.pr && !this.again) { this.again = true; this.cx.notify(); return; }
+    this.busy = true; this.error = ""; this.cx.notify();
+    const args = p.op === "rm" ? ["rm", p.ref, "--yes", ...(q.pr ? ["--yes"] : []), ...(worktree ? ["--worktree"] : [])] : ["dequeue", p.ref, "--yes"];
+    try {
+      const d = await taskCli(p, args);
+      if (d.error) { this.error = d.error; this.busy = false; this.cx.notify(); return; }
+      closeOverlay(p.overlay);
+    } catch (e) { this.error = String(e?.message ?? e); this.busy = false; this.cx.notify(); }
+  }
+
+  renderAsk() {
+    const t = theme();
+    const p = props();
+    const q = this.facts ? (p.op === "rm" ? removeAsk(this.facts) : dequeueAsk(this.facts)) : null;
+    const title = this.again && q?.prLine ? q.prLine : q?.title ?? (p.op === "rm" ? `Remove ${p.ref}?` : `Send ${p.ref} back to To do?`);
+    const lines = !q ? [this.error ? "" : "Reading…"] : this.again ? [q.prLine] : q.lines;
+    return v_flex().id("tasks-ask").track_focus(this.handle).size_full().min_h(0).p(18).gap(8).bg(t.popover).text_size(TEXT.body)
+      .on_key_down((e) => { if (e.key === "escape") closeOverlay(p.overlay); })
+      .child(div().text_size(TEXT.title).font_semibold().text_color(t.foreground).child(title))
+      .child(v_flex().flex_1().min_h(0).gap(6).text_color(t.muted).children(lines.filter(Boolean).map((l) => div().child(l)))
+        .when(Boolean(this.error), (el) => el.child(div().text_color(red()).child(this.error))))
+      .child(h_flex().w_full().flex_none().gap(8).items_center().justify_end()
+        .child(button("ask-cancel", "Cancel", { kind: "plain", size: "lg", onClick: () => closeOverlay(p.overlay) }))
+        .when(p.op === "rm" && Boolean(q?.worktreeVerb) && !this.again, (el) => el.child(button("ask-worktree", q.worktreeVerb, { kind: "secondary", size: "lg", disabled: this.busy, onClick: () => this.goAsk(true) })))
+        .child(button("ask-go", this.again ? "Remove anyway" : q?.verb ?? (p.op === "rm" ? "Remove" : "Dequeue"), { kind: "primary", size: "lg", disabled: this.busy || !q, onClick: () => this.goAsk(false) })));
+  }
+
   render(cx) {
+    if (props()?.menu === "ask") return this.renderAsk();
     const t = theme();
     const n = flat().length;
     let i = 0;

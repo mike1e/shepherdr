@@ -92,7 +92,7 @@ export function dequeueAsk(f = {}) {
   const lines = [`${f.ref} goes back to To do. Its brief, priority and notes are kept.`];
   if (f.agents?.length) lines.push("Its running agent is stopped; what it is doing now may be lost.");
   if (f.worktree) lines.push(`Its worktree ${f.worktree} and branch ${f.branch ?? ""} are not touched.`.replace("  ", " "));
-  return { title: `Send ${f.ref} back to To do?`, lines, verb: "Dequeue", needsAsk: Boolean(f.agents?.length) };
+  return { title: `Send ${f.ref} back to To do?`, lines, verb: "Dequeue", needsAsk: Boolean(f.agents?.length), worktreeVerb: null, pr: false, prLine: null };
 }
 // What Other time… asks (the web's field under the picks): its words, an example, the button's.
 export const SCHEDULE_OTHER = { placeholder: "fri 8:15, 18:00 or 6h", label: "When it starts", button: "Schedule" };

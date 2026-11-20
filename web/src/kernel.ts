@@ -1138,6 +1138,23 @@ export function deleteTask(t: Task, force = false): Promise<{ ok?: boolean; erro
   return act({ type: 'delete', chat: t.agent?.chat ?? `${t.id}/Agent`, force })
 }
 
+/** MSHEP-12: what removing or dequeueing a task would do (herdr-task's --check): its agents, open pull request and what its
+ *  worktree and branch hold */
+export type TaskFacts = { ref: string; title: string; agents: string[]; pr: { number: number; url?: string } | null; worktree: string | null; branch: string | null; uncommitted: number; unpushed: number }
+export function checkTask(t: Task, op: 'rm' | 'dequeue'): Promise<TaskFacts> {
+  return act({ type: 'task-check', chat: t.agent?.chat ?? `${t.id}/Agent`, op }) as Promise<TaskFacts>
+}
+
+/** MSHEP-12: remove a task (asked first); yes 2 for one with an open pull request, worktree to take its worktree and branch along */
+export function removeTask(t: Task, o: { yes: 1 | 2; worktree?: boolean }): Promise<{ ok?: boolean; error?: string }> {
+  return act({ type: 'delete', chat: t.agent?.chat ?? `${t.id}/Agent`, ...o })
+}
+
+/** MSHEP-12: a task back to To do; yes stops its running agent */
+export function dequeueTask(t: Task, yes = false): Promise<{ ok?: boolean; error?: string }> {
+  return act({ type: 'dequeue', chat: t.agent?.chat ?? `${t.id}/Agent`, yes })
+}
+
 /** Shepherdr forgets a space (its folder stays on disk): refused (error) while one of its tasks is working, and for a
  *  home space */
 export function removeSpace(placeId: string): Promise<{ ok?: boolean; error?: string; waiting?: boolean }> {
