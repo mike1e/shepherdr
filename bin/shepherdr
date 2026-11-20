@@ -2038,11 +2038,12 @@ def cmd_statusline(a):
     if text:
         shutil.copy2(path, path + ".shepherdr-bak")
     tmp = f"{path}.shepherdr-tmp"
-    with open(tmp, "w") as f:
+    mode = (os.stat(path).st_mode & 0o777) if text else 0o600   # the file's own permissions, from the first byte
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        os.fchmod(f.fileno(), mode)
         json.dump(doc, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    if text:
-        shutil.copymode(path, tmp)   # keep the file's own permissions (a 0600 stays 0600)
     os.replace(tmp, path)
     say(f"statusline tap {done}")
     return 0
