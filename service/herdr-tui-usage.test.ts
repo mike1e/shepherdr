@@ -41,3 +41,17 @@ test("prefix keys map to the TUI's commands", () => {
   expect(lookup("q")).toBeNull();
   expect(hints().length).toBeGreaterThan(15);
 });
+
+// @ts-ignore
+import { add, toggle, remove, ordered, clearDone, count } from "../mods/herdr-tui-todo/todos.js";
+test("the inbox adds, ticks, orders, sweeps and counts", () => {
+  let l = add(undefined, "  call bank ", 1);
+  l = add(l, "", 2);
+  l = add(l, "pay rent", 3);
+  expect(l.map((x: any) => x.text)).toEqual(["call bank", "pay rent"]);
+  l = toggle(l, 1);
+  expect(ordered(l).map((x: any) => x.id)).toEqual([3, 1]);
+  expect(count(l)).toBe("1 open · 1 done");
+  expect(clearDone(l).map((x: any) => x.id)).toEqual([3]);
+  expect(remove(l, 3).map((x: any) => x.id)).toEqual([1]);
+});

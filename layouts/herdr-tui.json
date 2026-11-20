@@ -151,6 +151,16 @@
               "type": "column",
               "children": [
                 {
+                  "id": "todo",
+                  "type": "block",
+                  "size": {
+                    "px": 190
+                  },
+                  "content": {
+                    "mod": "herdr-tui-todo"
+                  }
+                },
+                {
                   "id": "panel-body",
                   "type": "stack",
                   "size": {

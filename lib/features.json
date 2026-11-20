@@ -1263,7 +1263,7 @@
       "title": "Herdr TUI layout",
       "core": ["machines"],
       "herdr": {
-        "mods": ["herdr-tui-usage", "herdr-tui-prefix"]
+        "mods": ["herdr-tui-usage", "herdr-tui-prefix", "herdr-tui-todo"]
       },
       "web": {
         "files": ["plugins/health/client.tsx"]
