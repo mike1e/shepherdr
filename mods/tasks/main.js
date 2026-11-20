@@ -17,7 +17,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { machines, exec, readTextFile, watchFolder, appHome, home, run, theme, nextCommand, shared, setShared, openOverlay, layout } from "herdr";
+import { machines, exec, knownAgents, readTextFile, watchFolder, appHome, home, run, theme, nextCommand, shared, setShared, openOverlay, layout } from "herdr";
 import { holdKeys } from "./keyholder.js";
 import { spaces, panes, agents, terminals, inRender } from "./live.js";
 // What needs the person, from every space and machine (lib/inbox.js, shared; the tab
@@ -284,7 +284,10 @@ export default class Tasks extends View {
     // Shepherdr settings' "Status filters" off (shared "tasks.filters" false): no row, all shown (This space too).
     const filters = shared("tasks.filters") !== false;
     // This space: the shown space's only; not for Ctrl+K's jump while its words are still in the search field.
-    const here = this.here && filters && !(this.jumpQ && this.query.value() === this.jumpQ) ? spaces().find((s) => s.active) ?? null : null;
+    // A space picked by clicking its heading (this.spaceSel) narrows the same way, for that space instead of the shown one.
+    const sel = this.spaceSel;
+    const here = sel ? (spaces().find((s) => (s.machine ?? null) === (sel.machine ?? null) && s.folder === sel.folder) ?? { machine: sel.machine ?? null, folder: sel.folder, id: "", name: sel.name, tabs: [] })
+      : this.here && filters && !(this.jumpQ && this.query.value() === this.jumpQ) ? spaces().find((s) => s.active) ?? null : null;
     let placed = this.lists.flatMap((l) => l.tasks.map((task) => this.place(l, task)));
     // Each task's status as its list says it now, archived ones too: a Needs-you item the list has moved past is stale.
     const truth = new Map(placed.map((p) => [`${p.list.machine ?? ""}:${p.list.folder}:${refOf(p.list, p.task)}`, p]));
@@ -410,7 +413,7 @@ export default class Tasks extends View {
           for (const l of withTasks) {
             const ps = sorted(rest.filter((p) => p.list === l));
             const twin = withTasks.some((o) => o !== l && placeName(o) === placeName(l) && (o.machine ?? null) !== (l.machine ?? null));
-            body.push(this.group(`folder:${l.machine ?? ""}:${l.folder}`, placeName(l), ps.map((p) => this.row(p, t)), t, { open, note: twin ? machineName(l.machine) : null, done: ps.filter((p) => p.section === "done").length }));
+            body.push(this.group(`folder:${l.machine ?? ""}:${l.folder}`, placeName(l), ps.map((p) => this.row(p, t)), t, { open, note: twin ? machineName(l.machine) : null, done: ps.filter((p) => p.section === "done").length, onName: () => { this.spaceSel = { machine: l.machine ?? null, folder: l.folder, name: placeName(l) }; this.pickFilter("all"); } }));
           }
         }
       }
@@ -436,7 +439,7 @@ export default class Tasks extends View {
           .on_click(() => openOverlay({ mod: "tasks-menu", kind: "popup", at: "pointer", width: 200, height: GROUP_MENU_HEIGHT, props: { menu: "group", current: by } }))
           .child(svg("mods/tasks/more.svg").size(14).flex_none())))
       .child(this.searchField(t))
-      .when(!this.archivedOpen && filters, (el) => el.child(this.filterRow(chips, count, filter, t, here)))
+      .when(!this.archivedOpen && (filters || sel), (el) => el.child(this.filterRow(chips, count, filter, t, here)))
       // A press in the list gives it the keyboard: F then goes to the search field.
       .child(v_flex().id("task-list").flex_1().min_h(0).overflow_y_scrollbar().p(6).gap(6)
         .track_focus(this.listFocus)
@@ -452,51 +455,25 @@ export default class Tasks extends View {
         .children(body));
   }
 
-  // The filter row: All statuses (not the header's All, which is folders), a chip for each status that wants a look (Needs you, Working, Ready) as
-  // far as the panel's width allows, and the rest (and any that don't fit) behind More, a menu.
-  // It never wraps and never scrolls. Widths are estimated: about 7px a character at 12px.
+  // The filter row: This space, All statuses and a chip for every status that holds something, all shown. When
+  // they don't fit the panel's width the row wraps onto more lines (never scrolls, never hides one). A space picked
+  // from a heading takes This space's place as a chip with its name and an x; one click clears it.
   filterRow(chips, count, filter, t, here) {
     const label = (k) => (k === "automations" ? "Automations" : STATUS[k]);
-    const est = (text, n) => 16 + text.length * 7 + (n > 0 ? 5 + String(n).length * 7 : 0) + 2;
-    const MORE = 62;
-    let room = (this.width ?? 360) - 12 - est("This space", 0) - 2 - est("All statuses", 0);
-    const shown = [];
-    const primary = ["needs", "working", "ready"].filter((k) => chips.includes(k));
-    const others = chips.length > primary.length;
-    for (const [i, k] of primary.entries()) {
-      const w = est(label(k), count(k));
-      // Room for More too, unless this is the last chip and nothing else goes in it.
-      if (w + (others || i < primary.length - 1 ? MORE : 0) > room) break;
-      shown.push(k);
-      room -= w;
-    }
-    const inMore = chips.filter((k) => !shown.includes(k));
-    const picked = inMore.includes(filter) ? filter : null;
-    const items = inMore.map((k) => ({ key: k, label: label(k), count: count(k) }));
-    return h_flex().id("task-filter").flex_none().px(6).pt(6).gap(2).overflow_hidden()
-      .child(this.hereChip(here, t))
+    return h_flex().id("task-filter").flex_none().flex_wrap().px(6).pt(6).gap_x(2).gap_y(4)
+      .child(this.spaceSel ? this.spaceChip(this.spaceSel, t) : this.hereChip(here, t))
       .child(this.chip("all", "All statuses", 0, filter, t))
-      .children(shown.map((k) => this.chip(k, label(k), count(k), filter, t)))
-      .when(inMore.length > 0, (el) => el.child(this.moreChip(picked, picked ? label(picked) : "More", picked ? count(picked) : 0, items, filter, t)));
+      .children(chips.map((k) => this.chip(k, label(k), count(k), filter, t)));
   }
 
-  // The More chip: a chip like the others with a chevron. Its menu (mods/tasks-menu) opens under it, left edges
-  // lined up; while it's open (shared "tasks.menuopen", kept by the menu) the chip sits on the hover background.
-  moreChip(picked, text, n, items, filter, t) {
-    const open = Boolean(shared("tasks.menuopen"));
-    const lit = picked ? t.selected : open ? t.hover : t.background;
-    return h_flex().id("chip-more").h(H.sm).pl(8).pr(6).gap(4).flex_none().items_center().rounded(RADIUS.control).cursor_pointer().text_size(TEXT.label)
-      .bg(lit).text_color(picked || open ? t.foreground : t.muted)
-      .hover((s) => s.bg(picked ? t.selected : t.hover).text_color(t.foreground))
-      .on_mouse_down("left", (e) => { this.moreAt = e.bounds; })
-      .on_click((_e, cx) => {
-        const b = this.moreAt;
-        openOverlay({ mod: "tasks-menu", kind: "popup", width: 168, height: 8 + items.length * 32,
-          at: b ? { x: b.x, y: b.y + b.height + 4 } : "pointer", props: { menu: "filter", items, current: filter } });
-      })
-      .child(text)
-      .when(n > 0, (el) => el.child(div().text_color(t.dim).child(String(n))))
-      .child(svg("mods/workspace-chrome/chevron-down.svg").size(12).flex_none().text_color(open ? t.muted : t.dim));
+  // The picked space (from a heading): its name and an x, on the picked background; a click clears it.
+  spaceChip(sel, t) {
+    return h_flex().id("chip-space").h(H.sm).pl(8).pr(6).gap(5).flex_none().items_center().rounded(RADIUS.control).cursor_pointer().text_size(TEXT.label)
+      .bg(t.selected).text_color(t.foreground)
+      .hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => { this.spaceSel = null; this.pickFilter("all"); cx.notify(); })
+      .child(div().max_w(160).truncate().child(sel.name))
+      .child(div().text_color(t.dim).child("×"));
   }
 
   // A filter chip: a status and how many hold it; the chosen one sits on a soft background.
@@ -646,7 +623,7 @@ export default class Tasks extends View {
   // name). top: For you's heading, a step above the others (its label brighter and larger: the
   // list's first thing to read). onFold: what a click on the heading does instead of folding it
   // (For you's opened Done goes back to its count).
-  group(key, label, rows, t, { done = 0, open = false, note = null, top = false, count = rows.length, onFold = null } = {}) {
+  group(key, label, rows, t, { done = 0, open = false, note = null, top = false, count = rows.length, onFold = null, onName = null } = {}) {
     const shut = !open && !onFold && this.shut(key);
     const all = open || this.allDone.has(key);
     const cut = !all && done > DONE_SHOWN ? done - DONE_SHOWN : 0;
@@ -659,13 +636,17 @@ export default class Tasks extends View {
       .child(h_flex().id(`head-${key}`).h(28).px(8).gap(12).items_center().rounded(RADIUS.card).text_size(TEXT.label)
         .when(!open, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover))
           .on_hover((on, cx) => { this.hoverHead = on ? key : this.hoverHead === key ? null : this.hoverHead; cx.notify(); })
-          .on_click((_e, cx) => { if (onFold) onFold(); else this.fold(key, !shut); cx.notify(); }))
+          .on_click((_e, cx) => { if (onName && this.hoverName === key) return; if (onFold) onFold(); else this.fold(key, !shut); cx.notify(); }))
         .child(h_flex().w(14).h(14).flex_none().items_center().justify_center()
           .child(svg(`mods/workspace-chrome/chevron-${shut ? "right" : "down"}.svg`).size(12).flex_none()
             .text_color(this.hoverHead === key ? t.foreground : t.dim)))
         .child(h_flex().id(`head-${key}-label`).flex_1().min_w(0).gap(6).items_center()
-          .child(div().min_w(0).truncate().when(top, (el) => el.text_size(TEXT.body).font_semibold().text_color(t.foreground))
-            .when(!top, (el) => el.font_medium().text_color(t.muted)).child(label))
+          .child(div().id(`head-${key}-name`).min_w(0).truncate().when(top, (el) => el.text_size(TEXT.body).font_semibold().text_color(t.foreground))
+            .when(!top, (el) => el.font_medium().text_color(t.muted)).child(label)
+            // A space's name filters the panel to that space (the rest of the heading still folds).
+            .when(Boolean(onName) && !open, (el) => el.cursor_pointer().hover((s) => s.text_color(t.foreground))
+              .on_hover((on, cx) => { this.hoverName = on ? key : this.hoverName === key ? null : this.hoverName; cx.notify(); })
+              .on_click((_e, cx) => { this.hoverName = null; onName(); cx.notify(); })))
           .when(Boolean(note), (el) => el.child(div().flex_none().text_color(t.dim).child(`· ${note}`)))
           .when(Boolean(count), (el) => el.child(div().flex_none().text_color(t.dim).child(String(count))))))
       .when(!shut, (el) => el.children(shown)
@@ -930,7 +911,23 @@ export default class Tasks extends View {
   // A task not started yet also starts later (SHEP-38): a few times, and a scheduled one Start now and Unschedule
   // (core/menus.js taskMenu; the web's Other time… types any time, here the Assistant does).
   rowMenu(pin) {
-    const items = taskMenu({ pinned: pin.on, status: pin.status }).filter((x) => !x.typed);
+    // The agents Send to agent offers (knownAgents, kept per machine in shared "tasks.agents" so the menu opens at once).
+    const where = pin.machine ?? "";
+    const todo = ["todo", "queued", "scheduled"].includes(pin.status);
+    const cached = shared("tasks.agents")?.[where];
+    if (todo) {
+      const fresh = knownAgents({ on: pin.machine ?? null }).then((a) => {
+        const list = a.filter((x) => x.installed && !x.shell).map((x) => ({ key: x.key, name: x.name }));
+        setShared("tasks.agents", { ...shared("tasks.agents"), [where]: list });
+        return list;
+      }).catch(() => cached ?? []);
+      if (!cached) { fresh.then((list) => this.openRowMenu(pin, list)); return; }
+    }
+    this.openRowMenu(pin, cached ?? []);
+  }
+
+  openRowMenu(pin, agents) {
+    const items = taskMenu({ pinned: pin.on, status: pin.status, agents }).filter((x) => !x.typed);
     // As tasks-menu draws it: a section per line or heading, 4 apart; a heading 28, a row 32.
     let height = 8, first = true;
     for (const x of items) {
@@ -939,7 +936,7 @@ export default class Tasks extends View {
       first = false;
     }
     openOverlay({ mod: "tasks-menu", kind: "popup", at: "pointer", width: 220, height, props: { menu: "row", key: pin.key, on: pin.on,
-      status: pin.status, machine: pin.machine, folder: pin.folder, ref: pin.ref, sub: pin.sub } });
+      status: pin.status, agents, machine: pin.machine, folder: pin.folder, ref: pin.ref, sub: pin.sub } });
   }
 
   // Ready = "looks done, your call": Review (opens the Accept card) is the person's one action here, at the row's end. It merges first when there is something to merge (herdr-task accept follows the merge

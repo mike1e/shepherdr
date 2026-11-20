@@ -53,7 +53,7 @@ function sections() {
 function rowSections(p) {
   const out = [];
   let cur = null;
-  for (const it of taskMenu({ pinned: p.on, status: p.status ?? null })) {
+  for (const it of taskMenu({ pinned: p.on, status: p.status ?? null, agents: p.agents ?? [] })) {
     if (it.typed) continue;
     if (it.sep || it.heading || !cur) out.push(cur = { title: it.heading ? (p.status === "scheduled" && p.sub ? `${it.heading} · ${p.sub}` : it.heading) : null,
       checks: false, current: null, items: [], pick: (key) => rowPick(p, key) });
@@ -86,7 +86,7 @@ function rowPick(p, key) {
     setShared("tasks.pinned", p.on ? rest : [...rest, p.key]);
     return;
   }
-  const args = it.id === "start-now" ? ["start", p.ref, "--now"] : it.id === "unschedule" ? ["edit", p.ref, "--at", ""]
+  const args = it.id === "start-now" ? ["start", p.ref, "--now"] : it.id.startsWith("agent:") ? ["start", p.ref, "--now", "--agent", it.id.slice(6)] : it.id === "unschedule" ? ["edit", p.ref, "--at", ""]
     : ["edit", p.ref, ...(it.in ? ["--in", it.in] : ["--at", it.at])];
   // herdr-task, here or (--on) on the folder's machine; the list shows the change on its next read.
   const cli = (a) => exec(`${appHome()}/mods/tasks/bin/herdr-task`, a);
@@ -95,9 +95,9 @@ function rowPick(p, key) {
     .then((r) => {
       let out = null;
       try { out = JSON.parse(r.stdout || "null"); } catch {}
-      if (r.code !== 0 || !out || out.error) toast({ level: "error", title: `Couldn't schedule ${p.ref}`, body: out?.error || r.stderr?.trim() || "herdr-task refused it." });
+      if (r.code !== 0 || !out || out.error) toast({ level: "error", title: `Couldn't ${it.id === "start-now" || it.id.startsWith("agent:") ? "start" : "schedule"} ${p.ref}`, body: out?.error || r.stderr?.trim() || "herdr-task refused it." });
     })
-    .catch((e) => toast({ level: "error", title: `Couldn't schedule ${p.ref}`, body: String(e?.message ?? e) }));
+    .catch((e) => toast({ level: "error", title: `Couldn't ${it.id === "start-now" || it.id.startsWith("agent:") ? "start" : "schedule"} ${p.ref}`, body: String(e?.message ?? e) }));
 }
 
 // Every item in order, with its section: ↑/↓ run through all of them.

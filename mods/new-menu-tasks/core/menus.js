@@ -51,13 +51,16 @@ export const SCHEDULE_PICKS = [
   { label: "In 1 hour", in: "1h" }, { label: "In 3 hours", in: "3h" },
   { label: "Tomorrow 9:00", at: "tomorrow 9:00" }, { label: "Monday 9:00", at: "mon 9:00" },
 ];
-export const taskMenu = ({ pinned = false, status = null } = {}) => {
+export const taskMenu = ({ pinned = false, status = null, agents = [] } = {}) => {
   const later = ["todo", "queued", "scheduled"].includes(status);
   return [
     ...(later ? [{ heading: status === "scheduled" ? "Reschedule" : "Start later" },
       ...SCHEDULE_PICKS.map((p) => ({ id: "schedule", icon: "clock", ...p })),
       { id: "schedule-other", label: "Other time…", icon: "clock", typed: true }] : []),
-    ...(status === "scheduled" ? [sep, { id: "start-now", label: "Start now", icon: "play" }, { id: "unschedule", label: "Unschedule", icon: "x" }] : []),
+    ...(later ? [sep, { id: "start-now", label: "Start now", icon: "play" }] : []),
+    ...(status === "scheduled" ? [{ id: "unschedule", label: "Unschedule", icon: "x" }] : []),
+    // Send to agent: start it now with one of the agents Herdr knows (knownAgents, passed in by the caller).
+    ...(later && agents.length ? [sep, { heading: "Send to agent" }, ...agents.map((a) => ({ id: `agent:${a.key}`, label: a.name, icon: "play" }))] : []),
     ...(later ? [sep] : []),
     pinned ? { id: "unpin", label: "Unpin", icon: "pin-off" } : { id: "pin", label: "Pin", icon: "pin" },
   ];
