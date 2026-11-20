@@ -1,0 +1,16 @@
+{
+  "version": "2.1.329",
+  "model": {
+    "id": "claude-haiku-5-5",
+    "display_name": "Haiku 5.5"
+  },
+  "rate_limits": {
+    "seven_day": {
+      "used_percentage": 27,
+      "resets_at": 1795579200
+    }
+  },
+  "workspace": {
+    "current_dir": "/work/demo"
+  }
+}

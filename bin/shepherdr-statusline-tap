@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Shepherdr's status-line tap (MSHEP-4): `shepherdr-statusline-tap --then '<the person's own status-line command>'`.
+
+Claude Code pipes a JSON document to its status-line command on every update; recent versions include the plan's
+`rate_limits` ({five_hour, seven_day}: {used_percentage, resets_at in epoch seconds}). The tap keeps only those numbers
+in <Shepherdr's state folder>/claude-limits.json (which the machine meters read), then hands the same stdin to the
+person's own command and lets it print straight to the status line, so it looks exactly as before. It never fails the
+status line: any error of its own is swallowed and the command still runs. No network, no token, no Keychain."""
+import json
+import os
+import subprocess
+import sys
+import time
+
+WINDOWS = ("five_hour", "seven_day")
+
+
+def state_dir():
+    """Shepherdr's state folder, as herdr_task/layout.py decides it."""
+    one = os.environ.get("SHEPHERDR_HOME")
+    if one and os.path.isabs(one):
+        return os.path.join(one, "state")
+    x = os.environ.get("XDG_STATE_HOME")
+    base = x if x and os.path.isabs(x) else os.path.join(os.path.expanduser("~"), ".local", "state")
+    return os.path.join(base, "shepherdr")
+
+
+def numbers(raw, old, at):
+    """The file's next content from the status-line JSON `raw` and the file's `old` one: per window its used percent,
+    when it resets (ms) and when it was seen; a window this update doesn't carry stays while its reset is ahead."""
+    doc = json.loads(raw)
+    limits = doc.get("rate_limits") if isinstance(doc, dict) else None
+    if not isinstance(limits, dict):
+        return None
+    out = {}
+    for key in WINDOWS:
+        w = limits.get(key)
+        if isinstance(w, dict) and isinstance(w.get("used_percentage"), (int, float)) and not isinstance(w.get("used_percentage"), bool):
+            reset = w.get("resets_at")
+            out[key] = {"used": float(w["used_percentage"]), "seen": at}
+            if isinstance(reset, (int, float)) and not isinstance(reset, bool):
+                out[key]["resets_at"] = int(reset * 1000)
+    for key in WINDOWS:
+        kept = ((old or {}).get("windows") or {}).get(key)
+        if key not in out and isinstance(kept, dict) and isinstance(kept.get("resets_at"), (int, float)) and kept["resets_at"] > at:
+            out[key] = kept
+    if not out:
+        return None
+    res = {"at": at, "windows": out}
+    plan = limits.get("plan") or (doc.get("plan") if isinstance(doc.get("plan"), str) else None)
+    if isinstance(plan, str) and plan:
+        res["plan"] = plan[:30]
+    elif isinstance((old or {}).get("plan"), str):
+        res["plan"] = old["plan"]
+    return res
+
+
+def write(raw):
+    folder = state_dir()
+    path = os.path.join(folder, "claude-limits.json")
+    try:
+        with open(path) as f:
+            old = json.load(f)
+    except (OSError, ValueError):
+        old = None
+    got = numbers(raw, old, int(time.time() * 1000))
+    if not got:
+        return
+    os.makedirs(folder, exist_ok=True)
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    with open(tmp, "w") as f:
+        json.dump(got, f)
+    os.replace(tmp, path)
+
+
+def main(argv):
+    raw = sys.stdin.buffer.read()
+    then = argv[argv.index("--then") + 1] if "--then" in argv and argv.index("--then") + 1 < len(argv) else ""
+    try:
+        write(raw)
+    except Exception:
+        pass
+    if not then.strip():
+        return 0
+    try:
+        return subprocess.run(["/bin/sh", "-c", then], input=raw).returncode
+    except Exception:
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
