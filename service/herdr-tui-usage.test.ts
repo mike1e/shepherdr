@@ -55,3 +55,27 @@ test("the inbox adds, ticks, orders, sweeps and counts", () => {
   expect(clearDone(l).map((x: any) => x.id)).toEqual([3]);
   expect(remove(l, 3).map((x: any) => x.id)).toEqual([1]);
 });
+
+test("the inbox toggle unticks, ignores unknown ids and keeps the rest", () => {
+  let l = add(add(undefined, "a", 1), "b", 2);
+  l = toggle(l, 1);
+  expect(l.find((x: any) => x.id === 1).done).toBe(true);
+  l = toggle(l, 1);
+  expect(l.find((x: any) => x.id === 1).done).toBe(false);
+  expect(toggle(l, 99)).toEqual(l);
+  expect(l.find((x: any) => x.id === 2).done).toBe(false);
+});
+
+test("the inbox row wiring: box and text share one toggle click, x is a separate delete click", async () => {
+  const src = await Bun.file(new URL("../mods/herdr-tui-todo/main.js", import.meta.url)).text();
+  const tick = src.slice(src.indexOf("id(`tick-"), src.indexOf("id(`del-"));
+  expect(tick).toContain("toggle(read(), x.id)");
+  expect(tick).toContain("x.text");
+  expect(tick).toContain('"[x]"');
+  expect(tick).not.toContain("remove(");
+  const del = src.slice(src.indexOf("id(`del-"));
+  expect(del).toContain("remove(read(), x.id)");
+  expect(del).not.toContain("toggle(");
+  // the x must not sit inside the toggle target, or a click would reach both
+  expect(tick).not.toContain('child("x")');
+});

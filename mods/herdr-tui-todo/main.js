@@ -1,5 +1,5 @@
 // Herdr TUI layout: the Inbox, a to-do list for yourself above Tasks in the right panel. Type and press Enter to add,
-// click a row to tick it, x to delete, "clear done" to sweep. Kept in the app's shared store ("herdr-tui.todos").
+// click a to-do (box or text) to tick it, x to delete, "clear done" to sweep. Kept in the app's shared store ("herdr-tui.todos").
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, settings, shared, setShared } from "herdr";
@@ -35,9 +35,11 @@ export default class HerdrTuiTodo extends View {
         .child(Input.new(this.input).h(24).px(6).border_1().border_color(t.border).bg(t.background).text_color(t.foreground)))
       .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(10).children(list.map((x) =>
         h_flex().id(`todo-${x.id}`).flex_none().gap(8).py(1).items_start()
-          .child(div().id(`tick-${x.id}`).flex_none().cursor_pointer().text_color(x.done ? t.dim : t.accent).child(x.done ? "[x]" : "[ ]")
-            .on_click((_e, cx) => set(toggle(read(), x.id), cx)))
-          .child(div().flex_1().min_w(0).text_color(x.done ? t.dim : t.foreground).child(x.text))
+          // The box and the text are one click target (a sibling of the x, not its parent, so x never also toggles).
+          .child(h_flex().id(`tick-${x.id}`).flex_1().min_w(0).gap(8).items_start().cursor_pointer()
+            .on_click((_e, cx) => set(toggle(read(), x.id), cx))
+            .child(div().flex_none().text_color(x.done ? t.dim : t.accent).child(x.done ? "[x]" : "[ ]"))
+            .child(div().flex_1().min_w(0).text_color(x.done ? t.dim : t.foreground).child(x.text)))
           .child(div().id(`del-${x.id}`).flex_none().cursor_pointer().text_color(t.dim).hover((s) => s.text_color(t.blocked)).child("x")
             .on_click((_e, cx) => set(remove(read(), x.id), cx))))));
   }
