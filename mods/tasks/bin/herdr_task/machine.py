@@ -304,12 +304,12 @@ def _ago(ms):
 
 def tapped_claude(at, path=None):
     """What Claude Code's own status line last reported (bin/shepherdr-statusline-tap writes claude-limits.json from the
-    `rate_limits` it is piped): {"state": "ok", windows, seen_at, plan?} while a window's reset is still ahead, else
+    `rate_limits` it is piped): {"state": "ok", windows, at: when it was said} while a window's reset is still ahead, else
     {"state": "unknown", why} saying why not, or None when no session ever reported (the tap isn't on, or hasn't run)."""
     got = _json_file(path or os.path.join(_state_dir(), "claude-limits.json"))
     if not isinstance(got, dict) or not isinstance(got.get("windows"), dict):
         return None
-    windows, seen = [], 0
+    windows, oldest = [], None
     for key, name in NAMES:
         w = got["windows"].get(key)
         if not isinstance(w, dict) or not isinstance(w.get("used"), (int, float)):
@@ -323,15 +323,14 @@ def tapped_claude(at, path=None):
         if isinstance(r, (int, float)):
             item["resets_at"] = int(r)
         windows.append(item)
-        seen = max(seen, s if isinstance(s, (int, float)) else 0)
+        s = s if isinstance(s, (int, float)) else at
+        oldest = s if oldest is None else min(oldest, s)
     if not windows:
         last = got.get("at")
         return {"state": "unknown", "why": "Claude hasn't reported limits since %s: its last windows have reset; the next Claude session will say" % (
             _ago(at - last) + " ago" if isinstance(last, (int, float)) else "a while")}
-    out = {"state": "ok", "windows": windows, "seen_at": int(seen)}
-    if isinstance(got.get("plan"), str) and got["plan"]:
-        out["plan"] = got["plan"][:30]
-    return out
+    # "at" is when Claude last said it, not when this file was read: the meters' "Read 3 h ago" and old-colour go by it
+    return {"state": "ok", "windows": windows, "at": int(oldest)}
 
 
 def claude():
@@ -560,7 +559,7 @@ def limits():
         except Exception:
             got = {"state": "unknown", "why": "Couldn't run it"}
         if got is not None:
-            out[key] = dict(got, at=now_ms())
+            out[key] = dict({"at": now_ms()}, **got)
     jobs = [threading.Thread(target=safely, args=a) for a in (("claude", claude), ("codex", codex))]
     for j in jobs:
         j.start()

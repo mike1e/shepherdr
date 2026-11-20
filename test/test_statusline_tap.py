@@ -64,6 +64,19 @@ class Tap(unittest.TestCase):
         r = run_tap(SAMPLE.encode(), "echo fine", self.state)
         self.assertEqual((r.returncode, r.stdout), (0, b"fine\n"))
 
+    def test_sessions_reporting_at_once_lose_nothing(self):
+        future = 4102444800
+        docs = [json.dumps({"rate_limits": {k: {"used_percentage": 10 + i, "resets_at": future}}}).encode()
+                for i, k in enumerate(["five_hour", "seven_day"] * 6)]
+        env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "SHEPHERDR_HOME": self.state}
+        procs = [subprocess.Popen([sys.executable, TAP, "--then", "true"], stdin=subprocess.PIPE, env=env) for _ in docs]
+        for pr, d in zip(procs, docs):
+            pr.stdin.write(d)
+            pr.stdin.close()
+        for pr in procs:
+            pr.wait()
+        self.assertEqual(set(json.load(open(self.file))["windows"]), {"five_hour", "seven_day"})
+
     def test_no_command_prints_nothing(self):
         r = run_tap(SAMPLE.encode(), "", self.state)
         self.assertEqual((r.returncode, r.stdout), (0, b""))
@@ -93,12 +106,13 @@ class Freshness(unittest.TestCase):
     def test_windows_still_ahead_come_back_as_ok_in_the_usual_shape(self):
         p = self.write({"at": self.NOW - 1000, "windows": {
             "five_hour": self.win(12.0, self.NOW + 3_600_000, self.NOW - 1000),
-            "seven_day": self.win(27.0, self.NOW + 86_400_000, self.NOW - 1000)}, "plan": "max"})
+            "seven_day": self.win(27.0, self.NOW + 86_400_000, self.NOW - 5000)}, "plan": "max"})
         got = machine.tapped_claude(self.NOW, p)
         self.assertEqual(got["state"], "ok")
         self.assertEqual([(w["name"], w["used"]) for w in got["windows"]], [("5-hour", 12.0), ("Weekly", 27.0)])
         self.assertEqual(got["windows"][0]["resets_at"], self.NOW + 3_600_000)
-        self.assertEqual(got["plan"], "max")
+        self.assertEqual(got["at"], self.NOW - 5000)   # when Claude said it: the meters' "Read … ago" goes by this
+        self.assertNotIn("plan", got)
 
     def test_a_window_that_has_reset_is_dropped(self):
         p = self.write({"at": self.NOW - 1000, "windows": {
@@ -208,12 +222,18 @@ class Wrap(unittest.TestCase):
         r = subprocess.run(["/bin/sh", "-c", cmd], input=b"hello", stdout=subprocess.PIPE, env={"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "SHEPHERDR_HOME": self.d})
         self.assertEqual(r.stdout, b"HELLO")
 
-    def test_no_status_line_yet_wraps_nothing_and_off_removes_it_again(self):
+    def test_no_status_line_to_wrap_is_left_alone(self):
         self.put({"theme": "dark"})
         before = open(self.settings, "rb").read()
+        with self.assertRaises(self.mod.Stop):
+            self.run_cmd("on")
+        self.assertEqual(open(self.settings, "rb").read(), before)
+
+    def test_the_files_permissions_stay(self):
+        self.put({"statusLine": {"type": "command", "command": "echo hi"}})
+        os.chmod(self.settings, 0o600)
         self.run_cmd("on")
-        self.run_cmd("off")
-        self.assertEqual(json.load(open(self.settings)), {"theme": "dark"})
+        self.assertEqual(os.stat(self.settings).st_mode & 0o777, 0o600)
 
     def test_a_settings_file_that_isnt_json_is_left_alone(self):
         self.put(None, raw="{nope")

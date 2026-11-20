@@ -2013,34 +2013,23 @@ def cmd_statusline(a):
     cmd = sl.get("command") if isinstance(sl, dict) else None
     wrapped = isinstance(cmd, str) and cmd.startswith(prefix)
     if a.action == "status":
-        say(f"statusline tap: {'on' if wrapped else 'off'} ({path})" + (f"; your command: {shlex.split(cmd[len(prefix):])[0] or '(none)'}" if wrapped else ""))
+        say(f"statusline tap: {'on' if wrapped else 'off'} ({path})" + (f"; your command: {shlex.split(cmd[len(prefix):])[0]}" if wrapped else ""))
         return 0
     if a.action == "on":
         if wrapped:
             say("statusline tap is already on")
             return 0
-        if sl is not None and not (isinstance(sl, dict) and sl.get("type") == "command" and isinstance(cmd, str)):
-            raise Stop(f"{path}: statusLine isn't a command; left alone")
+        if not (isinstance(sl, dict) and sl.get("type") == "command" and isinstance(cmd, str) and cmd.strip()):
+            raise Stop(f"{path} has no status-line command to wrap (statusLine: type command): left alone")
         if not os.path.exists(os.path.join(root, BIN, TAP)) and not a.settings:
             raise Stop(f"{TAP} isn't installed ({os.path.join(root, BIN, TAP)}): `shepherdr update` first")
-        new = dict(sl) if isinstance(sl, dict) else {"type": "command"}
-        new["command"] = prefix + shlex.quote(cmd or "")
-        doc["statusLine"] = new
+        doc["statusLine"] = dict(sl, command=prefix + shlex.quote(cmd))
         done = "on: your status line looks the same, and Claude's limits now reach the machine meters"
     else:
         if not wrapped:
             say("statusline tap is already off")
             return 0
-        orig = shlex.split(cmd[len(prefix):])[0]
-        if orig:
-            doc["statusLine"] = dict(sl, command=orig)
-        else:
-            sl = dict(sl)
-            sl.pop("command")
-            if set(sl) <= {"type"}:
-                doc.pop("statusLine")
-            else:
-                doc["statusLine"] = sl
+        doc["statusLine"] = dict(sl, command=shlex.split(cmd[len(prefix):])[0])
         done = "off: your status-line command is back as it was"
     if a.dry_run:
         say(f"would turn the tap {a.action} in {path}")
@@ -2052,6 +2041,8 @@ def cmd_statusline(a):
     with open(tmp, "w") as f:
         json.dump(doc, f, indent=2, ensure_ascii=False)
         f.write("\n")
+    if text:
+        shutil.copymode(path, tmp)   # keep the file's own permissions (a 0600 stays 0600)
     os.replace(tmp, path)
     say(f"statusline tap {done}")
     return 0

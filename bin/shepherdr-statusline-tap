@@ -3,7 +3,7 @@
 
 Claude Code pipes a JSON document to its status-line command on every update; recent versions include the plan's
 `rate_limits` ({five_hour, seven_day}: {used_percentage, resets_at in epoch seconds}). The tap keeps only those numbers
-in <Shepherdr's state folder>/claude-limits.json (which the machine meters read), then hands the same stdin to the
+in <Shepherdr's state folder>/claude-limits.json (under a lock) (which the machine meters read), then hands the same stdin to the
 person's own command and lets it print straight to the status line, so it looks exactly as before. It never fails the
 status line: any error of its own is swallowed and the command still runs. No network, no token, no Keychain."""
 import json
@@ -47,30 +47,31 @@ def numbers(raw, old, at):
     if not out:
         return None
     res = {"at": at, "windows": out}
-    plan = limits.get("plan") or (doc.get("plan") if isinstance(doc.get("plan"), str) else None)
-    if isinstance(plan, str) and plan:
-        res["plan"] = plan[:30]
-    elif isinstance((old or {}).get("plan"), str):
-        res["plan"] = old["plan"]
     return res
 
 
 def write(raw):
     folder = state_dir()
     path = os.path.join(folder, "claude-limits.json")
-    try:
-        with open(path) as f:
-            old = json.load(f)
-    except (OSError, ValueError):
-        old = None
-    got = numbers(raw, old, int(time.time() * 1000))
-    if not got:
-        return
+    if numbers(raw, None, 0) is None:
+        return   # nothing to keep: no lock, no file touched
     os.makedirs(folder, exist_ok=True)
-    tmp = "%s.%d.tmp" % (path, os.getpid())
-    with open(tmp, "w") as f:
-        json.dump(got, f)
-    os.replace(tmp, path)
+    with open(path + ".lock", "a") as lock:
+        try:
+            import fcntl
+            fcntl.flock(lock, fcntl.LOCK_EX)   # read, merge and replace as one step: sessions report side by side
+        except ImportError:
+            pass
+        try:
+            with open(path) as f:
+                old = json.load(f)
+        except (OSError, ValueError):
+            old = None
+        got = numbers(raw, old, int(time.time() * 1000))
+        tmp = "%s.%d.tmp" % (path, os.getpid())
+        with open(tmp, "w") as f:
+            json.dump(got, f)
+        os.replace(tmp, path)
 
 
 def main(argv):
