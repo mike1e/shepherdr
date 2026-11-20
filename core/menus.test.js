@@ -21,8 +21,13 @@ test("the sidebar's other menus and a task row's", () => {
   expect(words(taskMenu({ pinned: true }))).toEqual(["Unpin"]);
   // SHEP-38: a task not started yet starts later; a scheduled one is rescheduled, started now or unscheduled
   const later = (m) => m.map((x) => x.sep ? "—" : x.heading ? `# ${x.heading}` : x.label);
-  expect(later(taskMenu({ status: "todo" }))).toEqual(["# Start later", "In 1 hour", "In 3 hours", "Tomorrow 9:00", "Monday 9:00", "Other time…", "—", "Pin"]);
+  expect(later(taskMenu({ status: "todo" }))).toEqual(["# Start later", "In 1 hour", "In 3 hours", "Tomorrow 9:00", "Monday 9:00", "Other time…", "—", "Start now", "—", "Pin"]);
   expect(later(taskMenu({ status: "scheduled", pinned: true }))).toEqual(["# Reschedule", "In 1 hour", "In 3 hours", "Tomorrow 9:00", "Monday 9:00", "Other time…", "—", "Start now", "Unschedule", "—", "Unpin"]);
+  // Send to agent: a not-started task lists the agents the caller passes, each starting it now with that agent
+  const agents = [{ key: "claude", name: "Claude Code" }, { key: "codex", name: "Codex" }];
+  expect(later(taskMenu({ status: "todo", agents })).slice(-6)).toEqual(["—", "# Send to agent", "Claude Code", "Codex", "—", "Pin"]);
+  expect(taskMenu({ status: "todo", agents }).filter((x) => x.id?.startsWith("agent:")).map((x) => x.id)).toEqual(["agent:claude", "agent:codex"]);
+  expect(later(taskMenu({ status: "working", agents }))).toEqual(["Pin"]);
   expect(later(taskMenu({ status: "working" }))).toEqual(["Pin"]);
   expect(machineLabel(null)).toBe("This computer");
   expect(machineLabel("vm", "Build box")).toBe("Build box");
