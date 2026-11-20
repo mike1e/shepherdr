@@ -323,7 +323,7 @@ function AskTask() {
     if (r?.ok === false) { setError(r.error ?? 'It was refused.'); setBusy(false) } else askTask(null)
   }
   return (
-    <Dialog title={again && q?.prLine ? q.prLine : q?.title ?? (op === 'rm' ? `Remove ${refOf(t.id)}?` : `Send ${refOf(t.id)} back to To do?`)} onCancel={() => askTask(null)} safe
+    <Dialog title={again ? `Remove ${refOf(t.id)} anyway?` : q?.title ?? (op === 'rm' ? `Remove ${refOf(t.id)}?` : `Send ${refOf(t.id)} back to To do?`)} onCancel={() => askTask(null)} safe
       buttons={<>
         {op === 'rm' && q?.worktreeVerb && !again ? <Primary soft disabled={busy} onClick={() => void go(true)}>{q.worktreeVerb}</Primary> : null}
         <Primary disabled={busy || !q} onClick={() => void go(false)}>{again ? 'Remove anyway' : q?.verb ?? 'Remove'}</Primary>

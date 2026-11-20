@@ -86,7 +86,7 @@ export function removeAsk(f = {}) {
   else if (f.worktree) lines.push(`Its worktree and branch ${f.branch ?? ""} hold nothing unsaved.`.replace("  ", " "));
   else if (f.branch && f.unpushed) lines.push(`Its branch ${f.branch} has ${plural(f.unpushed, "unpushed commit")} and stays.`);
   return { title: `Remove ${f.ref}?`, lines, verb: "Remove", worktreeVerb: f.worktree && !unsaved ? "Remove with worktree" : null, pr: Boolean(f.pr),
-    prLine: f.pr ? `Remove ${f.ref} anyway? Its pull request #${f.pr.number} stays open on GitHub.` : null };
+    prLine: f.pr ? `Its pull request #${f.pr.number} is still open and stays open on GitHub. Remove ${f.ref} anyway?` : null };
 }
 export function dequeueAsk(f = {}) {
   const lines = [`${f.ref} goes back to To do. Its brief, priority and notes are kept.`];
