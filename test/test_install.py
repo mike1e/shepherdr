@@ -71,6 +71,9 @@ class Install(unittest.TestCase):
         self.assertEqual(rec["version"], "3.1.44")
         self.assertTrue(os.path.isfile(self.p(APP, "mods/tasks/bin/herdr-task")))
         self.assertTrue(os.path.isfile(self.p(APP, "layouts/shepherdr.json")))
+        self.assertTrue(os.path.isfile(self.p(APP, "layouts/herdr-tui.json")), "the Herdr TUI layout ships beside Shepherdr's")
+        self.assertTrue(os.path.isfile(self.p(APP, "mods/herdr-tui-usage/main.js")))
+        self.assertTrue(os.path.isfile(self.p(APP, "mods/herdr-tui-prefix/keymap.js")))
         self.assertEqual(os.path.realpath(self.p(".local/bin/herdr-task")), os.path.realpath(self.p(APP, "mods/tasks/bin/herdr-task")))
         # A key the person uses is kept (no terminal to ask in); free ones are added.
         keys = json.load(open(self.p(APP, "keys.json")))
