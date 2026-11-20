@@ -42,12 +42,24 @@ class WhichNodeManagers(unittest.TestCase):
         self.assertTrue(machine.which("fnmfake").endswith("v20.1.0/installation/bin/fnmfake"))
         self.assertTrue(machine.which("voltafake").endswith(".volta/bin/voltafake"))
 
+    def test_newer_fnm_beats_older_nvm(self):
+        put(os.path.join(self.home, ".nvm/versions/node/v18.0.0/bin/mixfake"))
+        put(os.path.join(self.home, ".local/share/fnm/node-versions/v22.0.0/installation/bin/mixfake"))
+        self.assertIn("fnm/node-versions/v22.0.0", machine.which("mixfake"))
+
     def test_missing_cli_is_none(self):
         self.assertIsNone(machine.which("nothing-like-this"))
 
     def test_sealed_run_puts_the_cli_folder_on_path(self):
         binary = os.path.join(self.home, ".nvm/versions/node/v24.14.0/bin/codex")
-        self.assertTrue(machine._with_dir(binary).startswith(os.path.dirname(binary) + os.pathsep))
+        put(binary)
+        put(os.path.join(self.home, ".nvm/versions/node/v24.14.0/bin/node"))
+        link = os.path.join(self.home, "local-bin", "codex")
+        os.makedirs(os.path.dirname(link))
+        os.symlink(binary, link)
+        path = machine._with_dir(link).split(os.pathsep)
+        self.assertIn(os.path.dirname(binary), path)
+        self.assertIn(os.path.join(self.home, ".nvm/versions/node/v24.14.0/bin"), path)
 
 
 if __name__ == "__main__":

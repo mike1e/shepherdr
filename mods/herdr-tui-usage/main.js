@@ -20,8 +20,9 @@ export default class HerdrTuiUsage extends View {
     return v_flex().id("herdr-tui-usage").size_full().overflow_y_scrollbar().px(10).py(6).gap(1).font_family(mono).text_size(12)
       .child(div().text_color(t.dim).child("usage"))
       .children(rows.flatMap((r) => [
-        div().id(`u-${r.cli || "x"}`).text_color(t.foreground).child(r.cli ? r.name : ""),
-        ...(r.note ? [div().id(`n-${r.cli || "x"}`).truncate().text_color(t.dim).child(r.note)] : []),
+        ...(r.note && r.cli ? [div().id(`u-${r.cli}`).truncate().text_color(t.dim).child(`${r.name}: ${r.note}`)]
+          : r.note ? [div().id("n-x").truncate().text_color(t.dim).child(r.note)]
+          : [div().id(`u-${r.cli || "x"}`).text_color(t.foreground).child(r.cli ? r.name : "")]),
         ...r.lines.map((l) => h_flex().id(l.key).text_color(l.level === "ok" ? t.muted : colorOf(t, l.level)).child(lineText(l))),
       ]));
   }

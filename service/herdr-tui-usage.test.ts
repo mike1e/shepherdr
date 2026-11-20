@@ -47,7 +47,7 @@ test("claude then codex; an unreadable codex is one line saying why", () => {
   const stats = { limits: {
     claude: { state: "ok", at: NOW, windows: [{ name: "Weekly (all models)", used: 42 }] },
     codex: { state: "unknown", at: NOW, why: "Its sign-in is due for renewal: the next agent here will do it" } } };
-  const rows = usageRows(stats, NOW);
+  const rows = usageRows({ limits: { codex: stats.limits.codex, claude: stats.limits.claude } }, NOW);
   expect(rows.map((r: any) => r.cli)).toEqual(["claude", "codex"]);
   expect(rows[1].lines).toEqual([]);
   expect(rows[1].note).toBe("Unknown. Its sign-in is due for renewal: the next agent here will do it");

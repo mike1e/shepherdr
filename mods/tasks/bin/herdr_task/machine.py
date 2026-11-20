@@ -147,7 +147,7 @@ def _version_key(folder):
 
 
 def node_bins():
-    """bin folders of Node versions installed by nvm, fnm and volta, newest version first."""
+    """bin folders of Node versions installed by nvm, fnm and volta, newest version first (across managers)."""
     found = []
     nvm = os.environ.get("NVM_DIR") or os.path.join(HOME, ".nvm")
     fnm = os.environ.get("FNM_DIR") or os.path.join(HOME, ".local", "share", "fnm")
@@ -155,14 +155,16 @@ def node_bins():
                        (os.path.join(fnm, "node-versions"), os.path.join("installation", "bin")),
                        (os.path.join(HOME, "Library", "Application Support", "fnm", "node-versions"), os.path.join("installation", "bin"))):
         try:
-            versions = sorted((os.path.join(root, v) for v in os.listdir(root)), key=_version_key, reverse=True)
+            names = os.listdir(root)
         except OSError:
             continue
-        found += [os.path.join(v, tail) for v in versions if os.path.isdir(os.path.join(v, tail))]
+        found += [(_version_key(v), os.path.join(root, v, tail)) for v in names if os.path.isdir(os.path.join(root, v, tail))]
+    found.sort(key=lambda x: x[0], reverse=True)
+    out = [d for _, d in found]
     volta = os.environ.get("VOLTA_HOME") or os.path.join(HOME, ".volta")
     if os.path.isdir(os.path.join(volta, "bin")):
-        found.append(os.path.join(volta, "bin"))
-    return found
+        out.append(os.path.join(volta, "bin"))
+    return out
 
 
 def which(name):
@@ -178,7 +180,10 @@ def which(name):
 
 def _with_dir(binary):
     """PATH with the CLI's own folder in front: an npm-installed CLI is a node script, and its node sits beside it."""
-    return os.path.dirname(binary) + os.pathsep + os.environ.get("PATH", "")
+    dirs = [os.path.dirname(binary), os.path.dirname(os.path.realpath(binary))]
+    dirs += [d for d in node_bins() if os.access(os.path.join(d, "node"), os.X_OK)][:1]
+    seen = []
+    return os.pathsep.join([d for d in dirs if d not in seen and not seen.append(d)] + [os.environ.get("PATH", "")])
 
 
 def _quiet(argv):
