@@ -141,15 +141,49 @@ def now_ms():
     return int(time.time() * 1000)
 
 
+def _version_key(folder):
+    nums = re.findall(r"\d+", os.path.basename(folder))
+    return [int(n) for n in nums]
+
+
+def node_bins():
+    """bin folders of Node versions installed by nvm, fnm and volta, newest version first (across managers)."""
+    found = []
+    nvm = os.environ.get("NVM_DIR") or os.path.join(HOME, ".nvm")
+    fnm = os.environ.get("FNM_DIR") or os.path.join(HOME, ".local", "share", "fnm")
+    for root, tail in ((os.path.join(nvm, "versions", "node"), "bin"),
+                       (os.path.join(fnm, "node-versions"), os.path.join("installation", "bin")),
+                       (os.path.join(HOME, "Library", "Application Support", "fnm", "node-versions"), os.path.join("installation", "bin"))):
+        try:
+            names = os.listdir(root)
+        except OSError:
+            continue
+        found += [(_version_key(v), os.path.join(root, v, tail)) for v in names if os.path.isdir(os.path.join(root, v, tail))]
+    found.sort(key=lambda x: x[0], reverse=True)
+    out = [d for _, d in found]
+    volta = os.environ.get("VOLTA_HOME") or os.path.join(HOME, ".volta")
+    if os.path.isdir(os.path.join(volta, "bin")):
+        out.append(os.path.join(volta, "bin"))
+    return out
+
+
 def which(name):
     """The CLI's real program: hc exec's PATH is short, and a mise wrapper can't start sealed."""
-    path = os.pathsep.join([os.environ.get("PATH", "")] + PATHS)
+    path = os.pathsep.join([os.environ.get("PATH", "")] + PATHS + node_bins())
     found = shutil.which(name, path=path)
     if found and "/mise/" in found and ("/shims/" in found or "/command-wrappers/" in found):
         mise = shutil.which("mise", path=path)
         real = _run([mise, "which", name]).strip() if mise else ""
         found = real if real and os.path.exists(real) else found
     return found
+
+
+def _with_dir(binary):
+    """PATH with the CLI's own folder in front: an npm-installed CLI is a node script, and its node sits beside it."""
+    dirs = [os.path.dirname(binary), os.path.dirname(os.path.realpath(binary))]
+    dirs += [d for d in node_bins() if os.access(os.path.join(d, "node"), os.X_OK)][:1]
+    seen = []
+    return os.pathsep.join([d for d in dirs if d not in seen and not seen.append(d)] + [os.environ.get("PATH", "")])
 
 
 def _quiet(argv):
@@ -526,7 +560,8 @@ def codex():
         # Codex won't start without its own databases, so it gets empty ones.
         folder = tempfile.mkdtemp(prefix="herdr-limits-")
         try:
-            return _ask_codex(_seal(_quiet([binary, "app-server", "--disable", "plugins"]), (folder, home, kept)))
+            return _ask_codex(_seal(_quiet([binary, "app-server", "--disable", "plugins"]), (folder, home, kept)),
+                              dict(os.environ, PATH=_with_dir(binary)))
         finally:
             shutil.rmtree(folder, ignore_errors=True)
     if not os.path.exists(login):
@@ -540,7 +575,7 @@ def codex():
         os.mkdir(state, 0o700)
         for p in kept:
             os.symlink(os.path.realpath(p), os.path.join(state, os.path.basename(p)))
-        env = dict(os.environ, CODEX_HOME=state, CODEX_SQLITE_HOME=state, TMPDIR=opened)
+        env = dict(os.environ, CODEX_HOME=state, CODEX_SQLITE_HOME=state, TMPDIR=opened, PATH=_with_dir(binary))
         if os.path.exists("/etc/ssl/cert.pem"):
             env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
         argv = _quiet([binary, "app-server", "--disable", "plugins", "-c", 'cli_auth_credentials_store="file"'])

@@ -33,6 +33,26 @@ test("a CLI that can't be read says why; before any read it says reading", () =>
   expect(codex.lines).toEqual([]);
 });
 
+test("per-model windows are dropped and no label repeats", () => {
+  const stats = { limits: { claude: { state: "ok", at: NOW, windows: [
+    { name: "5-hour", used: 10 }, { name: "Weekly (all models)", used: 42 }, { name: "Weekly (Fable)", used: 5 }] } } };
+  const [claude] = usageRows(stats, NOW);
+  expect(claude.lines.map((l: any) => lineText(l))).toEqual(["5h ███████░  90%", "wk █████░░░  58%"]);
+  const [codex] = usageRows({ limits: { codex: { state: "ok", at: NOW, windows: [
+    { name: "5-hour", used: 20 }, { name: "Weekly", used: 30 }, { name: "Spark · 5-hour", used: 1 }, { name: "Spark · Weekly", used: 1 }] } } }, NOW);
+  expect(codex.lines.map((l: any) => l.label)).toEqual(["5h", "wk"]);
+});
+
+test("claude then codex; an unreadable codex is one line saying why", () => {
+  const stats = { limits: {
+    claude: { state: "ok", at: NOW, windows: [{ name: "Weekly (all models)", used: 42 }] },
+    codex: { state: "unknown", at: NOW, why: "Its sign-in is due for renewal: the next agent here will do it" } } };
+  const rows = usageRows({ limits: { codex: stats.limits.codex, claude: stats.limits.claude } }, NOW);
+  expect(rows.map((r: any) => r.cli)).toEqual(["claude", "codex"]);
+  expect(rows[1].lines).toEqual([]);
+  expect(rows[1].note).toBe("Unknown. Its sign-in is due for renewal: the next agent here will do it");
+});
+
 test("prefix keys map to the TUI's commands", () => {
   expect(lookup("c")).toEqual(["tab.new", {}]);
   expect(lookup("shift-n")).toEqual(["tabs-tasks.newspace", {}]);
