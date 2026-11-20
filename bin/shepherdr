@@ -47,6 +47,8 @@ own folders: ~/.config/shepherdr, ~/.local/share/shepherdr, ~/.local/state/sheph
 (SHEPHERDR_HOME or XDG_* move them). install and update move it there from ~/.herdr once, leaving links at
 the old paths (mods/tasks/bin/herdr_task/layout.py):
   shepherdr where                     every path in use, and the move's state
+  shepherdr statusline on|off|status  opt in to (or out of) Claude's limits in the meters: wraps your status-line command in
+                                      ~/.claude/settings.json with Shepherdr's tap (--settings FILE for another file)
   shepherdr migrate [--dry-run]       the move now (install, update and herdr-task do it by themselves)
   shepherdr migrate --rollback        everything back to ~/.herdr (for an older Shepherdr); `migrate` moves again
   shepherdr migrate --cleanup-legacy  remove the old paths' links, once no machine runs an older Shepherdr
@@ -60,6 +62,7 @@ import hashlib
 import json
 import os
 import pwd
+import shlex
 import shutil
 import subprocess
 import sys
@@ -133,7 +136,7 @@ def move_data(r, a, home):
         r.notes.append(n)
 # Helpers on the PATH: their name, and where the link leads (under the app home).
 LINKS = {"herdr-task": "mods/tasks/bin/herdr-task", "herdr-artifact": "mods/artifacts/bin/herdr-artifact",
-         "herdr-secret": "bin/herdr-secret", "herdr-browser": "bin/herdr-browser", "shepherdr": "bin/shepherdr"}
+         "herdr-secret": "bin/herdr-secret", "shepherdr-statusline-tap": "bin/shepherdr-statusline-tap", "herdr-browser": "bin/herdr-browser", "shepherdr": "bin/shepherdr"}
 # Written by Herdr into each mod (editor types): never ours, never touched.
 GENERATED = {"gpui-kit.d.ts", "jsconfig.json"}
 SKIP = {"__pycache__", ".DS_Store"}
@@ -1984,6 +1987,68 @@ def cmd_secrets(a):
     return subprocess.run(argv).returncode
 
 
+TAP = "shepherdr-statusline-tap"
+
+
+def tap_prefix(root):
+    return f"{shlex.quote(os.path.join(root, BIN, TAP))} --then "
+
+
+def cmd_statusline(a):
+    """`on` wraps the statusLine command of Claude Code's settings with the tap (it reads the plan's limits from the JSON
+    Claude Code pipes in and passes everything on to the original command); `off` puts that command back exactly."""
+    root = os.path.realpath(a.root or real_home())
+    path = a.settings or os.path.join(root, ".claude", "settings.json")
+    prefix = tap_prefix(root)
+    try:
+        text = open(path).read()
+        doc = json.loads(text) if text.strip() else {}
+    except FileNotFoundError:
+        text, doc = "", {}
+    except (OSError, ValueError) as e:
+        raise Stop(f"{path} isn't readable JSON ({e}); left alone")
+    if not isinstance(doc, dict):
+        raise Stop(f"{path} isn't a JSON object; left alone")
+    sl = doc.get("statusLine")
+    cmd = sl.get("command") if isinstance(sl, dict) else None
+    wrapped = isinstance(cmd, str) and cmd.startswith(prefix)
+    if a.action == "status":
+        say(f"statusline tap: {'on' if wrapped else 'off'} ({path})" + (f"; your command: {shlex.split(cmd[len(prefix):])[0]}" if wrapped else ""))
+        return 0
+    if a.action == "on":
+        if wrapped:
+            say("statusline tap is already on")
+            return 0
+        if not (isinstance(sl, dict) and sl.get("type") == "command" and isinstance(cmd, str) and cmd.strip()):
+            raise Stop(f"{path} has no status-line command to wrap (statusLine: type command): left alone")
+        if not os.path.exists(os.path.join(root, BIN, TAP)) and not a.settings:
+            raise Stop(f"{TAP} isn't installed ({os.path.join(root, BIN, TAP)}): `shepherdr update` first")
+        doc["statusLine"] = dict(sl, command=prefix + shlex.quote(cmd))
+        done = "on: your status line looks the same, and Claude's limits now reach the machine meters"
+    else:
+        if not wrapped:
+            say("statusline tap is already off")
+            return 0
+        doc["statusLine"] = dict(sl, command=shlex.split(cmd[len(prefix):])[0])
+        done = "off: your status-line command is back as it was"
+    if a.dry_run:
+        say(f"would turn the tap {a.action} in {path}")
+        return 0
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    if text:
+        shutil.copy2(path, path + ".shepherdr-bak")
+    tmp = f"{path}.shepherdr-tmp"
+    mode = (os.stat(path).st_mode & 0o777) if text else 0o600   # the file's own permissions, from the first byte
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        os.fchmod(f.fileno(), mode)
+        json.dump(doc, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    os.replace(tmp, path)
+    say(f"statusline tap {done}")
+    return 0
+
+
 def hand_over(a, argv):
     """`shepherdr update` runs the installed copy, which a pull doesn't change: installing with it wrote the old version
     (and its old steps), so it took a second run to say the new one. When the source's own installer is another, it
@@ -2058,6 +2123,11 @@ def main(argv):
     mg.add_argument("--cleanup-legacy", action="store_true", help="remove the links at the old paths (once every machine is updated)")
     mg.add_argument("--force", action="store_true", help="move even on a network disk (no other machine uses this home)")
     mg.add_argument("--yes", action="store_true")
+    sl = sub.add_parser("statusline", help="Claude's plan limits in the machine meters, through Claude Code's status line")
+    sl.add_argument("action", choices=["on", "off", "status"])
+    sl.add_argument("--settings", help="Claude Code's settings file (default ~/.claude/settings.json): a scratch copy to try")
+    sl.add_argument("--root", help=argparse.SUPPRESS)
+    sl.add_argument("--dry-run", action="store_true")
     sub.add_parser("version")
     a = ap.parse_args(argv)
     try:
@@ -2078,6 +2148,8 @@ def main(argv):
             return cmd_web(a)
         if a.cmd == "secrets":
             return cmd_secrets(a)
+        if a.cmd == "statusline":
+            return cmd_statusline(a)
         if a.cmd == "where":
             return cmd_where(a)
         if a.cmd == "migrate":

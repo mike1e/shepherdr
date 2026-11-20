@@ -4,7 +4,9 @@ nothing installed: Herdr's sidebar sends it as `python3 -c <this file> [--limits
 `hc exec --on <machine>` and reads the JSON it prints, {"health": {...}, "limits": {...}}; and
 herdr-task's tick imports it to hold new tasks while its machine is too busy (hold_reason).
 
-Plan limits come only from each CLI's own usage source, each in its own short process that can
+Claude's limits come first from what Claude Code's own status line reported (bin/shepherdr-statusline-tap keeps
+them in claude-limits.json, fresh or still inside their window), else from its `/usage`. Plan limits come only from
+each CLI's own usage source, each in its own short process that can
 write nothing real (bwrap on Linux, sandbox-exec on a Mac): Claude Code's `/usage` and Codex's
 `account/rateLimits/read`. Never through a running agent, never a guess: a CLI it can't read says
 why. Only percentages, reset times, the plan's name and the signed-in account come back."""
@@ -129,6 +131,7 @@ def hold_reason(h, limits=None):
 SOON = 3600 * 1000
 WEEK = 7 * 86400 * 1000
 DUE = {"state": "unknown", "why": "Its sign-in is due for renewal: the next agent here will do it"}
+NO_LIMITS = "Claude Code's answer had no limits in it"
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 PATHS = [os.path.join(HOME, ".local", "bin"), "/usr/local/bin", "/opt/homebrew/bin", os.path.join(HOME, ".npm-global", "bin"),
          os.path.join(HOME, ".bun", "bin"), os.path.join(HOME, ".claude", "local")]
@@ -250,7 +253,7 @@ def parse_claude(text, at):
         return {"state": "signed-out"}
     if re.search(r"^Total cost:", text, re.M):
         return {"state": "no-plan"}
-    return {"state": "unknown", "why": "Claude Code's answer had no limits in it"}
+    return {"state": "unknown", "why": NO_LIMITS}
 
 
 def _json_file(path):
@@ -281,10 +284,70 @@ def _ask_claude(argv, env, cwd=None):
     return parse_claude(result, now_ms())
 
 
+FRESH = 15 * 60 * 1000   # a status-line report this young needs no remark
+NAMES = (("five_hour", "5-hour"), ("seven_day", "Weekly"))
+
+
+def _state_dir():
+    """Shepherdr's state folder (herdr_task/layout.py's rule, repeated: this file stands alone)."""
+    one = os.environ.get("SHEPHERDR_HOME")
+    if one and os.path.isabs(one):
+        return os.path.join(one, "state")
+    x = os.environ.get("XDG_STATE_HOME")
+    return os.path.join(x if x and os.path.isabs(x) else os.path.join(HOME, ".local", "state"), "shepherdr")
+
+
+def _ago(ms):
+    m = max(0, int(ms // 60000))
+    return "%d min" % m if m < 120 else "%d h" % (m // 60)
+
+
+def tapped_claude(at, path=None):
+    """What Claude Code's own status line last reported (bin/shepherdr-statusline-tap writes claude-limits.json from the
+    `rate_limits` it is piped): {"state": "ok", windows, at: when it was said} while a window's reset is still ahead, else
+    {"state": "unknown", why} saying why not, or None when no session ever reported (the tap isn't on, or hasn't run)."""
+    got = _json_file(path or os.path.join(_state_dir(), "claude-limits.json"))
+    if not isinstance(got, dict) or not isinstance(got.get("windows"), dict):
+        return None
+    windows, oldest = [], None
+    for key, name in NAMES:
+        w = got["windows"].get(key)
+        if not isinstance(w, dict) or not isinstance(w.get("used"), (int, float)):
+            continue
+        r, s = w.get("resets_at"), w.get("seen")
+        if isinstance(r, (int, float)) and r <= at:
+            continue   # that window has reset since: the number says nothing about the new one
+        if not isinstance(r, (int, float)) and not (isinstance(s, (int, float)) and at - s < FRESH):
+            continue   # no reset time to go by: only a young number counts
+        item = {"name": name, "used": float(w["used"])}
+        if isinstance(r, (int, float)):
+            item["resets_at"] = int(r)
+        windows.append(item)
+        s = s if isinstance(s, (int, float)) else at
+        oldest = s if oldest is None else min(oldest, s)
+    if not windows:
+        last = got.get("at")
+        return {"state": "unknown", "why": "Claude hasn't reported limits since %s: its last windows have reset; the next Claude session will say" % (
+            _ago(at - last) + " ago" if isinstance(last, (int, float)) else "a while")}
+    # "at" is when Claude last said it, not when this file was read: the meters' "Read 3 h ago" and old-colour go by it
+    return {"state": "ok", "windows": windows, "at": int(oldest)}
+
+
 def claude():
     binary = which("claude")
     if not binary:
         return None
+    heard = tapped_claude(now_ms())
+    if heard and heard["state"] == "ok":
+        return heard
+    got = _ask_claude_usage(binary)
+    if got.get("state") == "unknown" and got.get("why") == NO_LIMITS:
+        # /usage printed nothing useful (newer Claude Code): say what the status line has (or hasn't) said
+        return heard or {"state": "unknown", "why": "no Claude session has reported limits yet (Shepherdr's status-line tap: `shepherdr statusline on`)"}
+    return got
+
+
+def _ask_claude_usage(binary):
     missing = _no_seal()
     if missing:
         return {"state": "unknown", "why": missing}
@@ -496,7 +559,7 @@ def limits():
         except Exception:
             got = {"state": "unknown", "why": "Couldn't run it"}
         if got is not None:
-            out[key] = dict(got, at=now_ms())
+            out[key] = dict({"at": now_ms()}, **got)
     jobs = [threading.Thread(target=safely, args=a) for a in (("claude", claude), ("codex", codex))]
     for j in jobs:
         j.start()
