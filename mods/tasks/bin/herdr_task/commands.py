@@ -926,16 +926,132 @@ def cmd_config(args):
     say(args, out, f"{out['folder']}: tasks {out['prefix']}-n, at most {n} at once, {where}.")
 
 
-def cmd_rm(args):
+def stop_agents(s, t, by):
+    """Ends the task's live agents: the Stop action's `hc interrupt` first, then `hc kill`, so the terminal
+    doesn't stay behind as a live agent that start or the tick would count. Returns their addresses."""
+    gone = []
+    for k in live_agents(s.key(t)):
+        stop_note("dequeue-stop", task=s.ref(t), terminal=k["address"], by=by)
+        run(["hc", "interrupt", k["address"]])
+        run(["hc", "kill", k["address"]])
+        gone.append(k["address"])
+    return gone
+
+
+def work_at_risk(s, t):
+    """What removing the task's worktree and branch would lose: {"worktree", "branch", "uncommitted",
+    "unpushed"} (uncommitted: files changed or new in the worktree; unpushed: commits on the branch that no
+    remote and not its base branch has). A worktree that is gone has nothing uncommitted."""
+    wt, br, main = t.get("worktree"), t.get("branch"), s.loc["folder"]
+    wt = wt if wt and os.path.isdir(wt) and os.path.realpath(wt) != os.path.realpath(main) else None
+    out = {"worktree": wt, "branch": br, "uncommitted": 0, "unpushed": 0}
+    if wt:
+        ok, st, _ = git(wt, "status", "--porcelain")
+        out["uncommitted"] = len(st.splitlines()) if ok and st else (1 if not ok else 0)
+    if br and git(main, "rev-parse", "--verify", "--quiet", f"refs/heads/{br}")[0]:
+        refs = [r for r in (t.get("base"), ) if r and git(main, "rev-parse", "--verify", "--quiet", r)[0]]
+        ok, n, _ = git(main, "rev-list", "--count", f"refs/heads/{br}", "--not", "--remotes", *refs)
+        out["unpushed"] = int(n) if ok and n.isdigit() else 1
+    return out
+
+
+def open_pr(s, t):
+    """The task's pull request when it is still open (or can't be told: GitHub unreachable counts as open,
+    never the other way), else None."""
+    pr = t.get("pr") or {}
+    if not pr.get("number"):
+        return None
+    ok, state, _ = gh("pr", "view", str(pr["number"]), "--repo", pr.get("repo") or github(s) or "", "--json", "state", "-q", ".state")
+    return None if ok and state in ("MERGED", "CLOSED") else pr
+
+
+def task_facts(s, t):
+    """What a Remove or Dequeue question needs (--check): the task, its running agents, its open pull request and what its
+    worktree and branch hold. Nothing changes."""
+    pr = open_pr(s, t)
+    return {"id": t["id"], "ref": s.ref(t), "title": t["title"], "state": t["state"],
+            "agents": [k["address"] for k in map(detail, live_agents(s.key(t))) if agent_running(k)],
+            "pr": {"number": pr["number"], "url": pr.get("url")} if pr else None, **work_at_risk(s, t)}
+
+
+DEQUEUE_FROM = ("queued", "scheduled", "running", "ready")
+
+
+def cmd_dequeue(args):
+    """Back to To do: a queued, scheduled, working, needs-you or ready task. Its agent (if any) is stopped, its
+    brief, priority, notes, worktree and branch stay. Kept apart from `reopen`, which undoes done or ready and
+    keeps a started task Working."""
     with open_store(args) as s:
         t = s.find(args.id)
+        if t["state"] == "todo":
+            raise Fail(f"{s.ref(t)} is already in To do.")
+        if t["state"] not in DEQUEUE_FROM:
+            raise Fail(f"{s.ref(t)} is {STATUSES.get(t['state'], t['state'])}: reopen brings a finished task back.")
+        if getattr(args, "check", False):
+            return say(args, task_facts(s, t), json.dumps(task_facts(s, t)))
+        live = [k for k in map(detail, live_agents(s.key(t))) if agent_running(k)]
+        if live and not getattr(args, "yes", False):
+            raise Fail(f"{s.ref(t)} has a running agent ({live[0]['address']}); dequeue stops it, and what it is doing now may be lost. "
+                       f"Its worktree and branch stay. Run it again with --yes to stop it.")
+        stopped = stop_agents(s, t, "dequeue")
+        was = t["state"]
+        t["state"], t["reopened_at"] = "todo", now()
+        for k in ("merge_requested", "attention", "queue", "queued_at", "progress", "retry", "scheduled_for", "held", "review",
+                  "auto_merge", "merge_queued", "ready_turns", "back", "review_gate"):
+            t.pop(k, None)
+        unarchive(s, t)
+        s.dirty = True
+        risk = work_at_risk(s, t)
+        v = view(s, t)
+    where = f" Its worktree {risk['worktree']} (branch {risk['branch']}) is untouched." if risk["worktree"] else \
+        (f" Its branch {risk['branch']} is untouched." if risk["branch"] and risk["unpushed"] else "")
+    say(args, {**v, "was": was, "stopped": stopped, "worktree": risk["worktree"], "branch": risk["branch"]},
+        f"{s.ref(t)} is back in To do (was {STATUSES.get(was, was)})." + (f" Stopped {', '.join(stopped)}." if stopped else "") + where)
+
+
+def cmd_rm(args):
+    """Removes the task from its list. An open pull request needs --yes twice. Its worktree and branch stay unless
+    --worktree and they hold nothing unsaved (no uncommitted changes, no commit no remote has); else how to save the branch is said."""
+    with open_store(args) as s:
+        t = s.find(args.id)
+        if getattr(args, "check", False):
+            return say(args, task_facts(s, t), json.dumps(task_facts(s, t)))
+        pr = open_pr(s, t)
+        if pr and (getattr(args, "yes", 0) or 0) < 2:
+            raise Fail(f"{s.ref(t)} has an open pull request (#{pr['number']} {pr.get('url', '')}). Removing the task leaves it open on GitHub. "
+                       f"Run rm with --yes --yes to remove the task anyway.")
+        stopped = stop_agents(s, t, "rm")
+        risk = work_at_risk(s, t)
         s.data["tasks"].remove(t)
         for o in s.data["tasks"]:
             if t["id"] in (o.get("after") or []):
                 o["after"] = [i for i in o["after"] if i != t["id"]]
         s.dirty = True
-    note = f" Its worktree {t['worktree']} is still there." if t.get("worktree") and os.path.isdir(t["worktree"]) else ""
-    say(args, {"id": t["id"], "removed": True}, f"{s.ref(t)} removed.{note}")
+        safe = not risk["uncommitted"] and not risk["unpushed"]
+        main = s.loc["folder"]
+        wt, br = risk["worktree"], risk["branch"]
+        removed = False
+        if getattr(args, "worktree", False) and safe and (wt or br):
+            removed = not wt or git(main, "worktree", "remove", wt)[0]
+            if removed and br:
+                removed = git(main, "branch", "-d", br)[0] or git(main, "branch", "-D", br)[0]  # -D: pushed or in base, checked above
+    notes = []
+    q = shlex.quote
+    if removed:
+        notes.append(f"Its worktree {wt} and branch {br} are removed.")
+    elif wt or (br and risk["unpushed"]):
+        left = wt or br
+        if safe:
+            notes.append(f"Its worktree {left} is still there; nothing in it is unsaved. Remove it with `rm --worktree`, or: "
+                         f"git -C {q(main)} worktree remove {q(wt or left)}" + (f" && git -C {q(main)} branch -d {q(br)}" if br else ""))
+        else:
+            what = " and ".join(x for x in (f"{risk['uncommitted']} uncommitted change(s)" if risk["uncommitted"] else "",
+                                            f"{risk['unpushed']} unpushed commit(s)" if risk["unpushed"] else "") if x)
+            notes.append(f"Its worktree {left} is kept: it has {what}. Save the branch first: "
+                         + (f"git -C {q(wt)} add -A && git -C {q(wt)} commit -m 'WIP' && " if risk["uncommitted"] else "")
+                         + f"git -C {q(wt or main)} push -u origin {q(br or 'HEAD')}")
+    say(args, {"id": t["id"], "removed": True, "stopped": stopped, "worktree": wt, "branch": br, "worktree_removed": bool(removed),
+               "unsaved": not safe}, f"{s.ref(t)} removed." + "".join(" " + n for n in notes))
 
 
 def last_agent(t):

@@ -63,8 +63,37 @@ export const taskMenu = ({ pinned = false, status = null, agents = [] } = {}) =>
     ...(later && agents.length ? [sep, { heading: "Send to agent" }, ...agents.map((a) => ({ id: `agent:${a.key}`, label: a.name, icon: "play" }))] : []),
     ...(later ? [sep] : []),
     pinned ? { id: "unpin", label: "Unpin", icon: "pin-off" } : { id: "pin", label: "Pin", icon: "pin" },
+    // MSHEP-12: a started, queued or scheduled task goes back to To do (Dequeue); any task can be removed (asks first).
+    ...(status ? [sep] : []),
+    ...(DEQUEUABLE.includes(status) ? [{ id: "dequeue", label: "Dequeue", icon: "undo-2" }] : []),
+    ...(status ? [{ id: "remove", label: "Remove…", icon: "trash-2", danger: true }] : []),
   ];
 };
+// The statuses Dequeue applies to (a task in To do is there already, a Done one reopens): herdr-task dequeue's states.
+export const DEQUEUABLE = ["queued", "scheduled", "work", "working", "need", "ready", "merging"];
+
+// What Dequeue and Remove ask, from herdr-task's `rm --check` / `dequeue --check` facts: { ref, title, agents: [address],
+// pr: { number } | null (open), worktree, branch, uncommitted, unpushed }. A question is { title, lines, verb, worktreeVerb,
+// pr (a second yes is needed) }; worktreeVerb is set when the worktree and branch hold nothing unsaved and can go with the task.
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+export function removeAsk(f = {}) {
+  const unsaved = (f.uncommitted || 0) + (f.unpushed || 0) > 0;
+  const lines = [`"${f.title ?? f.ref}" is removed from the list. This cannot be undone.`];
+  if (f.pr) lines.push(`It has an open pull request (#${f.pr.number}): it stays open on GitHub.`);
+  if (f.agents?.length) lines.push("Its running agent is stopped.");
+  if (f.worktree && unsaved)
+    lines.push(`Its worktree has ${[f.uncommitted && plural(f.uncommitted, "uncommitted change"), f.unpushed && plural(f.unpushed, "unpushed commit")].filter(Boolean).join(" and ")}: the worktree and branch ${f.branch ?? ""} stay, to save first.`.replace("  ", " "));
+  else if (f.worktree) lines.push(`Its worktree and branch ${f.branch ?? ""} hold nothing unsaved.`.replace("  ", " "));
+  else if (f.branch && f.unpushed) lines.push(`Its branch ${f.branch} has ${plural(f.unpushed, "unpushed commit")} and stays.`);
+  return { title: `Remove ${f.ref}?`, lines, verb: "Remove", worktreeVerb: f.worktree && !unsaved ? "Remove with worktree" : null, pr: Boolean(f.pr),
+    prLine: f.pr ? `Remove ${f.ref} anyway? Its pull request #${f.pr.number} stays open on GitHub.` : null };
+}
+export function dequeueAsk(f = {}) {
+  const lines = [`${f.ref} goes back to To do. Its brief, priority and notes are kept.`];
+  if (f.agents?.length) lines.push("Its running agent is stopped; what it is doing now may be lost.");
+  if (f.worktree) lines.push(`Its worktree ${f.worktree} and branch ${f.branch ?? ""} are not touched.`.replace("  ", " "));
+  return { title: `Send ${f.ref} back to To do?`, lines, verb: "Dequeue", needsAsk: Boolean(f.agents?.length) };
+}
 // What Other time… asks (the web's field under the picks): its words, an example, the button's.
 export const SCHEDULE_OTHER = { placeholder: "fri 8:15, 18:00 or 6h", label: "When it starts", button: "Schedule" };
 

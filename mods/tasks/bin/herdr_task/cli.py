@@ -15,7 +15,7 @@ from .agents import LINE_MAX, SUMMARY_MAX
 from .launch import cmd_allow, name_tabs
 from .commands import (
     cmd_accept, cmd_add, cmd_alert, cmd_config, cmd_edit, cmd_fix, cmd_list, cmd_merge, cmd_ready,
-    cmd_resume, cmd_review, cmd_review_more, cmd_reviewed, cmd_rm, cmd_show, cmd_start, cmd_state, cmd_status,
+    cmd_dequeue, cmd_resume, cmd_review, cmd_review_more, cmd_reviewed, cmd_rm, cmd_show, cmd_start, cmd_state, cmd_status,
     cmd_switch, cmd_unarchive, cmd_where,
 )
 from .tick import cmd_tick
@@ -298,7 +298,13 @@ def main():
     g.add_argument("--here", action="store_true")
     g.add_argument("--worktree", action="store_true")
     when_opts(c, edit=True)
-    cmd("rm", cmd_rm, "remove a task")
+    c = cmd("dequeue", cmd_dequeue, "send a queued, scheduled, working or ready task back to to do: stops its agent, keeps the task, its brief, worktree and branch")
+    c.add_argument("--yes", action="store_true", help="stop a running agent (what it is doing now may be lost)")
+    c.add_argument("--check", action="store_true", help="change nothing: say what dequeue would stop and keep (JSON with --json)")
+    c = cmd("rm", cmd_rm, "remove a task (its worktree and branch stay unless --worktree and nothing in them is unsaved)")
+    c.add_argument("--yes", action="count", default=0, help="twice (--yes --yes) to remove a task whose pull request is still open")
+    c.add_argument("--check", action="store_true", help="change nothing: say what removing would stop, leave and lose (JSON with --json)")
+    c.add_argument("--worktree", action="store_true", help="also remove its worktree and branch, when they hold no uncommitted changes and no unpushed commits")
     c = cmd("config", cmd_config, "this folder's settings", id=False)
     c.add_argument("--prefix", help="task ids' prefix, 2 to 5 letters (HAT -> HAT-4); unique on this machine")
     c = cmd("tick", cmd_tick, "start queued tasks that can go; mark merged ones done (Herdr runs this)", id=False)

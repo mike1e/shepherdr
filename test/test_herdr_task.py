@@ -6327,3 +6327,129 @@ class PriorityFlags(unittest.TestCase):
             s.find(a).pop("priority", None)
             s.dirty = True
         self.assertEqual(self.show(str(a))["title"], "Old")
+
+
+class DequeueAndRemove(unittest.TestCase):
+    """MSHEP-12: dequeue sends a started task back to To do (agent stopped, worktree and branch kept); rm offers to remove
+    the worktree and branch only when nothing in them is unsaved. A throwaway git repo and store; hc and gh are faked."""
+
+    def setUp(self):
+        import argparse
+        import contextlib
+        import io
+        import shutil
+        from unittest import mock
+        sys.path.insert(0, BIN)
+        import herdr_task.commands as commands
+        self.commands, self.argparse, self.contextlib, self.io = commands, argparse, contextlib, io
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.main, self.wt = os.path.join(self.root, "repo"), os.path.join(self.root, "wt")
+        self.git(self.root, "init", "-q", "-b", "main", self.main)
+        for k, v in (("user.name", "T"), ("user.email", "t@example.com"), ("commit.gpgsign", "false")):
+            self.git(self.main, "config", k, v)
+        self.git(self.main, "commit", "-q", "--allow-empty", "-m", "base")
+        self.git(self.main, "worktree", "add", "-q", "-b", "task/1", self.wt, "HEAD")
+        self.store = Store([{"id": 1, "title": "Stuck", "state": "running", "mode": "worktree", "worktree": self.wt, "branch": "task/1",
+                             "base": "main", "started": 5, "attention": "Agent stopped", "priority": "p1", "prompt": "do it",
+                             "agents": [{"address": "t1", "at": 5}]}])
+        self.store.loc["folder"] = self.main
+        self.task = self.store.data["tasks"][0]
+        self.live, self.calls, self.pr_state = [], [], None
+        patches = [(commands, "open_store", lambda args, **k: self.store), (commands, "live_agents", lambda key: list(self.live)),
+                   (commands, "detail", lambda k: k), (commands, "agent_running", lambda k: True),
+                   (commands, "unarchive", lambda s, t: None), (commands, "view", lambda s, t: {"id": t["id"], "state": t["state"]}),
+                   (commands, "stop_note", lambda *a, **k: None),
+                   (commands, "run", lambda argv, **k: (self.calls.append(argv), subprocess.CompletedProcess(argv, 0, "", ""))[1]),
+                   (commands, "gh", lambda *a, **k: (True, self.pr_state or "", "")), (commands, "github", lambda s: "o/r")]
+        for mod, name, value in patches:
+            p = mock.patch.object(mod, name, value, create=True)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def git(self, cwd, *args):
+        return subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, check=True).stdout.strip()
+
+    def run_cmd(self, fn, **kw):
+        out = self.io.StringIO()
+        with self.contextlib.redirect_stdout(out):
+            fn(self.argparse.Namespace(id="SHEP-1", json=True, folder=None, **kw))
+        return json.loads(out.getvalue())
+
+    def test_dequeue_a_stuck_task_keeps_everything_but_the_agent(self):
+        for state in ("queued", "scheduled", "running", "ready"):
+            self.task.update(state=state, scheduled_for=9, queue={"argv": []}, progress={"text": "x"})
+            out = self.run_cmd(self.commands.cmd_dequeue)
+            self.assertEqual((self.task["state"], out["was"]), ("todo", state))
+            for gone in ("attention", "queue", "scheduled_for", "progress"):
+                self.assertNotIn(gone, self.task)
+            self.task["attention"] = "Agent stopped"
+        self.assertEqual((self.task["priority"], self.task["prompt"], self.task["worktree"], self.task["branch"]), ("p1", "do it", self.wt, "task/1"))
+        self.assertTrue(os.path.isdir(self.wt))
+        self.assertEqual(self.git(self.main, "branch", "--list", "task/1").split()[-1], "task/1")
+
+    def test_dequeue_stops_a_running_agent_only_when_told(self):
+        self.live = [{"address": "t1", "state": "live"}]
+        with self.assertRaises(self.commands.Fail) as e:
+            self.run_cmd(self.commands.cmd_dequeue)
+        self.assertIn("--yes", str(e.exception))
+        self.assertEqual((self.task["state"], self.calls), ("running", []))
+        out = self.run_cmd(self.commands.cmd_dequeue, yes=True)
+        self.assertEqual(out["stopped"], ["t1"])
+        self.assertEqual(self.calls, [["hc", "interrupt", "t1"], ["hc", "kill", "t1"]])  # Stop's call, then the terminal goes
+        self.assertEqual(self.task["state"], "todo")
+
+    def test_dequeue_refuses_todo_and_done(self):
+        for state in ("todo", "done"):
+            self.task["state"] = state
+            with self.assertRaises(self.commands.Fail):
+                self.run_cmd(self.commands.cmd_dequeue)
+
+    def test_rm_leaves_the_worktree_unless_asked_and_safe(self):
+        out = self.run_cmd(self.commands.cmd_rm, yes=0, worktree=False)
+        self.assertEqual((self.store.data["tasks"], out["worktree_removed"], os.path.isdir(self.wt)), ([], False, True))
+
+    def test_rm_worktree_removes_a_clean_one_with_its_branch(self):
+        out = self.run_cmd(self.commands.cmd_rm, yes=0, worktree=True)
+        self.assertTrue(out["worktree_removed"])
+        self.assertFalse(os.path.isdir(self.wt))
+        self.assertEqual(self.git(self.main, "branch", "--list", "task/1"), "")
+
+    def test_rm_never_deletes_unpushed_commits_and_says_how_to_save_them(self):
+        self.git(self.wt, "commit", "-q", "--allow-empty", "-m", "mine")
+        out = self.run_cmd(self.commands.cmd_rm, yes=0, worktree=True)
+        self.assertEqual((out["worktree_removed"], out["unsaved"], os.path.isdir(self.wt)), (False, True, True))
+        self.assertEqual(self.git(self.main, "branch", "--list", "task/1").split()[-1], "task/1")
+
+    def test_rm_never_deletes_uncommitted_changes(self):
+        with open(os.path.join(self.wt, "a.txt"), "w") as f:
+            f.write("x")
+        out = self.run_cmd(self.commands.cmd_rm, yes=0, worktree=True)
+        self.assertEqual((out["worktree_removed"], out["unsaved"], os.path.isfile(os.path.join(self.wt, "a.txt"))), (False, True, True))
+
+    def test_rm_with_an_open_pull_request_needs_yes_twice(self):
+        self.task["pr"] = {"number": 7, "repo": "o/r", "url": "u"}
+        self.pr_state = "OPEN"
+        for yes in (0, 1):
+            with self.assertRaises(self.commands.Fail) as e:
+                self.run_cmd(self.commands.cmd_rm, yes=yes, worktree=False)
+            self.assertIn("open pull request", str(e.exception))
+            self.assertEqual(len(self.store.data["tasks"]), 1)
+        self.run_cmd(self.commands.cmd_rm, yes=2, worktree=False)
+        self.assertEqual(self.store.data["tasks"], [])
+
+    def test_rm_with_a_merged_pull_request_needs_no_yes(self):
+        self.task["pr"] = {"number": 7, "repo": "o/r", "url": "u"}
+        self.pr_state = "MERGED"
+        self.run_cmd(self.commands.cmd_rm, yes=0, worktree=False)
+        self.assertEqual(self.store.data["tasks"], [])
+
+    def test_check_says_what_would_happen_and_changes_nothing(self):
+        self.git(self.wt, "commit", "-q", "--allow-empty", "-m", "mine")
+        self.task["pr"] = {"number": 7, "repo": "o/r", "url": "u"}
+        self.pr_state = "OPEN"
+        self.live = [{"address": "t1", "state": "live"}]
+        for fn in (self.commands.cmd_rm, self.commands.cmd_dequeue):
+            f = self.run_cmd(fn, check=True)
+            self.assertEqual((f["ref"], f["agents"], f["pr"]["number"], f["unpushed"], f["uncommitted"], f["branch"]), ("SHEP-1", ["t1"], 7, 1, 0, "task/1"))
+        self.assertEqual((len(self.store.data["tasks"]), self.task["state"], self.calls), (1, "running", []))
