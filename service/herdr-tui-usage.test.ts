@@ -35,7 +35,8 @@ test("a CLI that can't be read says why; before any read it says reading", () =>
 
 test("prefix keys map to the TUI's commands", () => {
   expect(lookup("c")).toEqual(["tab.new", {}]);
-  expect(lookup("shift-n")).toEqual(["space.new", {}]);
+  expect(lookup("shift-n")).toEqual(["tabs-tasks.newspace", {}]);
+  expect(lookup("shift-x")).toEqual(["tabs-tasks.close", {}]);
   expect(lookup("3")).toEqual(["tab.select", { index: 3 }]);
   expect(lookup("q")).toBeNull();
   expect(hints().length).toBeGreaterThan(15);

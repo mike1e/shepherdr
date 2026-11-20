@@ -26,7 +26,7 @@ export function usageRows(stats, now = Date.now()) {
   const rows = planRows(stats, now);
   if (!rows.length) return [{ cli: "", name: "usage", note: noPlanWords(stats), lines: [] }];
   return rows.map((r) => {
-    const base = { cli: r.cli, name: r.cli, lines: [] };
+    const base = { cli: r.cli, name: r.cli, note: "", lines: [] };
     if (r.none) return { ...base, note: NO_USAGE };
     if (r.read.state !== "ok") return { ...base, note: whyWords(r.read).replace(/\.$/, "") };
     const live = (r.read.windows ?? []).filter((w) => liveWindow(w, now));

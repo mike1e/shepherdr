@@ -2,8 +2,8 @@
 // runs one. Same letters as the TUI where the app has the command; [key, command, args, words].
 export const PREFIX = [
   ["c", "tab.new", {}, "new tab"], ["n", "tab.next", {}, "next tab"], ["p", "tab.prev", {}, "previous tab"],
-  ["shift-t", "tab.rename", {}, "rename tab"], ["shift-x", "tab.close", {}, "close tab"],
-  ["shift-n", "space.new", {}, "new workspace"], ["shift-w", "space.rename", {}, "rename workspace"],
+  ["shift-t", "tabs-tasks.rename-tab", {}, "rename tab"], ["shift-x", "tabs-tasks.close", {}, "close tab"],
+  ["shift-n", "tabs-tasks.newspace", {}, "new workspace"], ["shift-w", "tabs-tasks.rename-space", {}, "rename workspace"],
   ["shift-d", "space.close", {}, "close workspace"], ["w", "mod.open", { name: "picker" }, "workspaces"],
   ["g", "mod.open", { name: "jump" }, "go to"], ["h", "pane.go", { direction: "left" }, "pane left"],
   ["j", "pane.go", { direction: "down" }, "pane down"], ["k", "pane.go", { direction: "up" }, "pane up"],

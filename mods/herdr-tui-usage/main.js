@@ -17,7 +17,7 @@ export default class HerdrTuiUsage extends View {
     const t = theme();
     const mono = settings()?.font ?? "JetBrains Mono";
     const rows = usageRows(statsOf(null));
-    return v_flex().id("herdr-tui-usage").size_full().px(10).py(6).gap(1).font_family(mono).text_size(12)
+    return v_flex().id("herdr-tui-usage").size_full().overflow_y_scrollbar().px(10).py(6).gap(1).font_family(mono).text_size(12)
       .child(div().text_color(t.dim).child("usage"))
       .children(rows.flatMap((r) => [
         div().id(`u-${r.cli || "x"}`).text_color(t.foreground).child(r.cli ? r.name : ""),

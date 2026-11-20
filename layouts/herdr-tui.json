@@ -74,7 +74,7 @@
           "id": "usage",
           "type": "block",
           "size": {
-            "px": 120
+            "px": 150
           },
           "content": {
             "mod": "herdr-tui-usage"
