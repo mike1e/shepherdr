@@ -16,6 +16,7 @@ import { answerCodex } from "./codex-ask.ts";
 const { sessionOf, forkArgv, liveTaskAgent, FORK_LIVE } = AGa as any;
 import * as SP from "../core/spaces.js";
 const { READ, withMove, withSection, withoutSection, withSectionName, withIcon, withMachineLook, withOrder, withMachineOrder, DELETED, deletedSection, withRestoredSection } = SP as any;
+import * as TODOS from "../core/todos.js";
 import type { Compat } from "./compat.ts";
 import { worktreeAct } from "./worktrees.ts";
 import { layoutScript } from "./layout-scripts.ts";
@@ -207,6 +208,9 @@ async function knownAgents(hub: Hub, compat: Compat, machine: string | null): Pr
   return Object.entries(AGENTS).map(([kind, a]) => ({ kind, name: a.name, installed: have.has(kind), run: a.run }));
 }
 
+/** a to-do's id: the time added, as the window gives one, never one the list already has */
+const newTodoId = (list: unknown) => Math.max(Date.now(), ...TODOS.clean(list).map((x: any) => (Number.isFinite(x.id) ? x.id + 1 : 0)));
+
 export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
   // 2.1's screen names a chat by its key (compat.ts): its terminal here.
   const chat = (key: unknown) => {
@@ -259,6 +263,19 @@ export async function act(hub: Hub, b: any, compat: Compat): Promise<unknown> {
     const now = new Set<string>(Array.isArray(sh.value("tasks.pinned")) ? sh.value("tasks.pinned") : []);
     if (b.on) now.add(t.pin); else now.delete(t.pin);
     await sh.set("tasks.pinned", [...now]);
+    return { ok: true };
+  }
+  if (b?.type === "todos" && sh) {
+    // the Inbox's list (shared "herdr-tui.todos", the window's herdr-tui-todo): the pure helpers it uses, on the list as
+    // it is now; the window's bridge picks the change up within a few seconds
+    const KEY = "herdr-tui.todos", now = sh.value(KEY);
+    let next: unknown;
+    if (b.op === "add" && typeof b.text === "string") next = TODOS.add(now, b.text, newTodoId(now));
+    else if (b.op === "toggle" && typeof b.id === "number") next = TODOS.toggle(now, b.id);
+    else if (b.op === "remove" && typeof b.id === "number") next = TODOS.remove(now, b.id);
+    else if (b.op === "clear") next = TODOS.clearDone(now);
+    else throw new Error("Unknown to-do change.");
+    await sh.set(KEY, next);
     return { ok: true };
   }
   const bar = () => sh!.value("spaces-chat") ?? {};

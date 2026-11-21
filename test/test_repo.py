@@ -496,6 +496,15 @@ class TestsOnAThrowawayHome(unittest.TestCase):
         for k in ("HC_TERMINAL_SOCKET", "HC_TERMINAL_ID", "HERDR_APP_HOME"):
             self.assertNotIn(k, os.environ)
 
+    def test_inbox_todos_are_one_list_on_window_and_web(self):
+        """MSHEP-16: the window's Inbox and the web app's To-dos share one key and one set of list helpers."""
+        # the bridge keeps the window's shared key and the service's document in step
+        self.assertIn('"herdr-tui.todos"', open(J("lib", "bridge.js")).read())
+        # the mod's helpers are a copy of core/todos.js, which the service and the web app import
+        self.assertEqual(open(J("core", "todos.js")).read(), open(J("mods", "herdr-tui-todo", "core", "todos.js")).read())
+        self.assertIn('"./core/todos.js"', open(J("mods", "herdr-tui-todo", "main.js")).read())
+        self.assertIn('herdr-tui.todos', open(J("mods", "herdr-tui-todo", "main.js")).read())
+
     def test_touching_the_real_home_fails_at_once(self):
         import subprocess
         hook = os.path.join(home_guard.REAL, ".local", "share", "herdr", "ask", "ask-hook.sh")

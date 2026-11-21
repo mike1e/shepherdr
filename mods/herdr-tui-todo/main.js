@@ -3,7 +3,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, settings, shared, setShared } from "herdr";
-import { add, toggle, remove, ordered, clearDone, count } from "./todos.js";
+import { add, toggle, remove, ordered, clearDone, count } from "./core/todos.js";
 
 const KEY = "herdr-tui.todos";
 const read = () => shared(KEY);

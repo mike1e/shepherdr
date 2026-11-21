@@ -13,6 +13,7 @@ core/asks.js: chat jump spaces-chat tabs-tasks tasks tasks-menu workspace-status
 core/needs.js: chat jump spaces-chat tabs-tasks tasks tasks-menu workspace-status-chat toasts
 core/tasks.js: chat jump tasks tasks-menu
 core/notify.js: chat spaces-chat tabs-tasks tasks shepherdr-settings workspace-status-chat
+core/todos.js: herdr-tui-todo
 parked.js: chat spaces-chat tabs-tasks workspace-status-chat
 keyholder.js: chat tasks newspace
 unread.js: chat spaces-chat

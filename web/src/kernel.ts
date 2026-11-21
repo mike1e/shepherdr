@@ -121,6 +121,8 @@ export interface Registry {
   sideFoot: { order: number; View: FC }[]
   /** under the task list: place is its one space, else the place picked; list, what it shows (listView) */
   tasksFooter: FC<{ place: Place; list?: ListView }>[]
+  /** above the task list's filter (the To-dos card) */
+  tasksHead: FC[]
   /** keyboard: return true when handled */
   keys: { order: number; handle: (k: KeyContext) => boolean }[]
   /** a settings row a plugin acts on itself (alerts: turn them on for this device); returns what to say */
@@ -158,6 +160,7 @@ export const registry: Registry = {
   phoneBar: [],
   phoneAbove: [],
   tasksFooter: [],
+  tasksHead: [],
   keys: [],
   settingActions: {},
   settingsPages: [],

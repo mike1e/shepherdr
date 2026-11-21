@@ -1261,12 +1261,12 @@
       "id": "herdr-tui",
       "addon": "herdr-tui",
       "title": "Herdr TUI layout",
-      "core": ["machines"],
+      "core": ["machines", "todos"],
       "herdr": {
         "mods": ["herdr-tui-usage", "herdr-tui-prefix", "herdr-tui-todo"]
       },
       "web": {
-        "files": ["plugins/health/client.tsx"]
+        "files": ["plugins/health/client.tsx", "plugins/todos/client.tsx"]
       },
       "forms": {
         "herdr": "Layout Herdr TUI (Ctrl+Shift+L): TUI sidebar with plan usage, Ctrl+B prefix keys",
