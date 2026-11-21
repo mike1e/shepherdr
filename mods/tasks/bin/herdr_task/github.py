@@ -274,8 +274,10 @@ def branch_prs(task, repo):
                     "--json", "number,url,state,isCrossRepository,baseRefName,headRefOid,mergeCommit")
     try:
         found = json.loads(out) if ok and out else []
-        return [p for p in found if not p.get("isCrossRepository")
-                and p.get("baseRefName") == (task.get("base") or "main")]
+        # MSHEP-22: into its base, or into the repo's main (HLA-4: a task based on an old branch, its pull
+        # request reopened against main as #56 beside the closed #57): both are its own work's pull requests.
+        bases = {task.get("base") or "main", "main"}
+        return [p for p in found if not p.get("isCrossRepository") and p.get("baseRefName") in bases]
     except (ValueError, TypeError, AttributeError):
         return []
 
