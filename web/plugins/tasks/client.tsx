@@ -495,6 +495,7 @@ function TaskList(_: { placeId: string }) {
   let lastOn: string | undefined
   return (
     <>
+      {registry.tasksHead.map((H, i) => <H key={i} />)}
       <TaskFilter listKey={view.search} order={order} />
       <ByToggle />
       <div ref={list} className="relative">

@@ -1252,9 +1252,17 @@ export interface Snapshot {
   /** the sidebar's sections, as Slack's, each with its spaces in the human's order: the top ones first (Pinned, id
    *  'pinned', among them), then each machine's, its machine in order (shared/order.ts) */
   sections?: Section[]
+  /** the Inbox's to-dos (shared "herdr-tui.todos", MSHEP-16): the same list the window's Inbox shows */
+  todos?: Todo[]
 }
 
+export interface Todo { id: number; text: string; done: boolean }
+
 export type Action =
+  /** the Inbox's to-dos (MSHEP-16): applied to the shared list as it is now, so two devices never undo each other */
+  | { type: 'todos'; op: 'add'; text: string }
+  | { type: 'todos'; op: 'toggle' | 'remove'; id: number }
+  | { type: 'todos'; op: 'clear' }
   | { type: 'plugin'; plugin: string; method: string; input?: unknown; cid: string }
   /** read every machine's plan limits again, unless they were read a moment ago */
   | { type: 'limits-check' }

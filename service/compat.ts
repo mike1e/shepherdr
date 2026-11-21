@@ -7,6 +7,7 @@ import { failedOf } from "./send-once.ts";
 import { priorityOf } from "../web/shared/priority.ts";
 import type { Snapshot, Place, Task, Need, Section, Machine, Chat, Message, Status, TaskStatus, StepKind, ActivityAnswer, Question, Artifact, SettingSection, Job } from "../web/shared/types.ts";
 import * as T from "../core/tasks.js";
+import * as TODOS from "../core/todos.js";
 import * as SPc from "../core/spaces.js";
 import { kindOf as kindOfTerm } from "../core/chat-reader.js";
 import * as CL from "../core/chat-log.js";
@@ -469,6 +470,7 @@ export class Compat {
     this.last = {
       terminalTransport: "core", name: "Shepherdr", host, user: input.user, places, machines, tasks, automations: automationsBySpace(input.automations ?? [], spaces, (s) => places.find((p) => p.id === s.id)?.name ?? s.name), asks: {}, needs, settings: [...(input.settings ?? []), ...notify],
       artifacts: (input.artifacts ?? []).map((a) => artifactOf(a, spaces, (addr) => { const k = kindOfTerm((this as any).terminalsOf?.(addr)); return k ? CLI_NAMES[k] ?? k : null; })),
+      todos: TODOS.clean(this.shared?.value("herdr-tui.todos")),
       sections, last, read, off: input.offPlugins ?? [],
       // the Window page's look switches (shared keys the window reads too): the web follows the same ones
       look: lookOf((k) => this.shared?.value(k)),
