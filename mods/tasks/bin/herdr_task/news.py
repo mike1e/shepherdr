@@ -78,7 +78,7 @@ def news_line(s, t, v, event, words=None):
             "stalled": f"{ref} {words} ({title})",
             "working-again": f"{ref} is working again: {(t.get('back') or {}).get('why') or 'its agent is at work again'} ({title})",
             "backup": f"{ref} backup: {words} ({title})",
-            "done": f"{ref} is done" + (": merged" if t.get("merged") else ": nothing to merge" if t.get("nothing_to_merge")
+            "done": f"{ref} is done" + (": merged outside Shepherdr" if t.get("merged") and t.get("merged_outside") else ": merged" if t.get("merged") else ": nothing to merge" if t.get("nothing_to_merge")
                                         else ": accepted" if t.get("accepted_at") else "") + f" ({title})"}[event]
     return f'<herdr-news task="{attr(ref)}" event="{event}">{text.replace("<", "‹").replace(">", "›")}</herdr-news>'
 

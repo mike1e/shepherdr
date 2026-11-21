@@ -1452,6 +1452,100 @@ class BackToWork(unittest.TestCase):
         # a job that waits on another's needs isn't a check yet, but its run isn't finished
         self.assertTrue(github.pr_pending(dict(done, runs_pending=True)))
 
+    # MSHEP-19: a task follows what GitHub says of its branch, not only the pull request on record.
+    def fake_gh(self, listed=None, runs=None):
+        import herdr_task.github as github
+        calls = []
+
+        def gh(*a, **k):
+            calls.append(a)
+            if a[:2] == ("pr", "list"):
+                return True, json.dumps(listed or []), ""
+            if a[0] == "api" and "actions/runs" in a[1]:
+                return True, json.dumps(runs or []), ""
+            return False, "", "unexpected"
+        p = self.mock.patch.object(github, "gh", gh)
+        p.start()
+        self.addCleanup(p.stop)
+        return calls
+
+    SIB = {"isCrossRepository": False, "baseRefName": "main", "headRefOid": "abc", "url": "u"}
+
+    def test_a_pull_request_merged_by_hand_makes_the_task_done(self):
+        t = self.pr_task()
+        t["attention"] = self.tick.CHECKS_NEVER
+        got, report = self.queue_tick({"state": "MERGED", "mergeCommit": {"oid": "f00"}})
+        self.assertEqual((t["state"], t.get("merged"), report["done"], "attention" in t), ("done", True, [7], False))
+        self.assertTrue(t.get("merged_outside"))
+        self.assertIn("merged outside Shepherdr", self.news.news_line(self.store, t, {}, "done"))
+
+    def test_a_merge_shepherdr_asked_for_is_not_outside(self):
+        t = self.pr_task(accepted_at=1)
+        self.queue_tick({"state": "MERGED", "mergeCommit": {"oid": "f00"}})
+        self.assertNotIn("merged_outside", t)
+
+    def test_another_pull_request_from_its_branch_merged_makes_it_done(self):
+        t = self.pr_task()
+        self.fake_gh([dict(self.SIB, number=56, state="MERGED", mergeCommit={"oid": "f00"})])
+        got, report = self.queue_tick({"state": "CLOSED", "headRefOid": "old"})
+        self.assertEqual((t["state"], t["pr"]["number"], report["done"]), ("done", 56, [7]))
+
+    def test_an_open_pull_request_is_not_done_by_an_older_merged_one_at_another_head(self):
+        t = self.pr_task()
+        self.fake_gh([dict(self.SIB, number=56, state="MERGED", headRefOid="older")])
+        self.queue_tick(dict(self.FINE, headRefOid="abc"))
+        self.assertEqual((t["state"], t["pr"]["number"]), ("ready", 593))
+
+    def test_a_closed_pull_request_follows_its_open_sibling(self):
+        t = self.pr_task()
+        t["attention"] = "The pull request was closed."
+        self.fake_gh([dict(self.SIB, number=56, state="OPEN"), dict(self.SIB, number=593, state="CLOSED")])
+        got, report = self.queue_tick({"state": "CLOSED", "headRefOid": "abc"})
+        self.assertEqual((t["state"], t["pr"]["number"], t["pr"]["switched_from"], "attention" in t), ("ready", 56, 593, False))
+        self.assertEqual(len(report["pr_switched"]), 1)
+
+    def test_a_closed_pull_request_with_no_sibling_keeps_saying_so(self):
+        t = self.pr_task()
+        self.fake_gh([dict(self.SIB, number=593, state="CLOSED")])
+        self.queue_tick({"state": "CLOSED", "headRefOid": "abc"})
+        self.assertEqual((t["pr"]["number"], t.get("attention")), (593, "The pull request was closed."))
+
+    def test_a_done_task_is_never_reopened(self):
+        t = self.pr_task()
+        t["state"] = "done"
+        self.fake_gh([dict(self.SIB, number=56, state="OPEN")])
+        self.tick.tick_store(self.store, {"started": [], "done": [], "attention": [], "fired": [], "retries": []})
+        self.assertEqual((t["state"], t["pr"]["number"]), ("done", 593))
+
+    def test_a_finished_dispatch_run_counts_as_the_checks(self):
+        import herdr_task.github as github
+        run = {"name": "Check", "status": "completed", "conclusion": "success", "created_at": "2026-01-01T00:00:00Z"}
+        self.fake_gh(runs=[run])
+        self.assertEqual(github.run_rows("o/r", "abc")[0]["conclusion"], "SUCCESS")
+        v = dict(self.NONE_YET, statusCheckRollup=github.run_rows("o/r", "abc"))
+        self.assertIsNone(github.checks_missing(v, 0, "yes"))
+        self.assertIsNone(github.pr_problem(v))
+        # no run at all for that head: still "never started"
+        self.fake_gh(runs=[])
+        self.assertEqual(github.run_rows("o/r", "abc"), [])
+        self.assertEqual(github.checks_missing(self.NONE_YET, 0, "yes"), "never")
+        # a run that failed is a failing check, not a pass
+        self.fake_gh(runs=[dict(run, conclusion="failure")])
+        self.assertIn("Checks failing", github.pr_problem(dict(self.NONE_YET, statusCheckRollup=github.run_rows("o/r", "abc"))))
+
+    def test_pr_view_fills_a_missing_rollup_from_runs(self):
+        import herdr_task.github as github
+        run = {"name": "Check", "status": "completed", "conclusion": "success", "created_at": "2026-01-01T00:00:00Z"}
+        calls = self.fake_gh(runs=[run])
+        base = dict(self.NONE_YET, statusCheckRollup=[])
+        orig = github.gh
+
+        def gh(*a, **k):
+            return (True, json.dumps(base), "") if a[:2] == ("pr", "view") else orig(*a, **k)
+        with self.mock.patch.object(github, "gh", gh):
+            v = github.pr_view({"pr": {"number": 1, "repo": "o/r"}})
+        self.assertEqual([c["conclusion"] for c in v["statusCheckRollup"]], ["SUCCESS"])
+
     def test_accept_before_checks_start_merges_once_they_pass(self):
         import herdr_task.github as github
         t = self.pr_task(ready_at=1_000_000)
