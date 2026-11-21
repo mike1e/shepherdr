@@ -18,7 +18,7 @@ from .agents import (
 from .provider import NUDGE, provider_cut, provider_error, PROVIDER_WAITS
 from .sessions import find_lost_logs, refresh_sessions, session_of
 from .github import (already_merged, BEHIND, CHECKS_NEVER, checks_missing, checks_since, drop_branch, expected_checks, finish, github, merged_here, needs_approval, note_checks, pr_merged, pr_pending, pr_problem,
-                     pr_view, pr_wait, queue_entry, queue_merge, tidy_done, tidy_due, update_main, watch_main)
+                     pr_view, pr_wait, reconcile_pr, queue_entry, queue_merge, tidy_done, tidy_due, update_main, watch_main)
 from .launch import default_space
 from .store import locate, read_list, Store, store_files
 from .queues import machine_hold, refresh_ext, running_count, set_hold, waiting_ext, waiting_for
@@ -109,9 +109,32 @@ def facts(s, t, report):
         if not v:
             return
         note_checks(s, t, v)
+        if v.get("state") != "MERGED":
+            # MSHEP-19: the work as GitHub shows it, not only the pull request on record: another from its
+            # branch merged (done), or the closed one's replacement is open (followed).
+            how, other = reconcile_pr(t, v)
+            if how == "merged":
+                pr.update(number=other["number"], url=other["url"])
+                v = {"state": "MERGED", "mergeCommit": other.get("mergeCommit")}
+            elif how == "switch":
+                pr.update(number=other["number"], url=other["url"], switched_from=pr["number"], checked=0)
+                for k in ("head_sha", "head_at", "expects", "watch", "wait", "needs_approval"):
+                    pr.pop(k, None)
+                if t.get("attention", "").startswith("The pull request was closed"):
+                    t.pop("attention", None)
+                    t.pop("attention_at", None)
+                report.setdefault("pr_switched", []).append(f"{s.ref(t)}: #{pr['switched_from']} closed, now #{other['number']}")
+                s.dirty = True
+                return
         if v.get("state") == "MERGED":
+            # Finished on GitHub: never Needs you for what it said before (checks, closed), held open or not.
+            if t.get("attention", "").startswith(("Checks failing", "It conflicts", "The pull request was closed", MERGE_FAILED, BEHIND, CHECKS_NEVER)):
+                t.pop("attention", None)
+                t.pop("attention_at", None)
             if at_work(s, t) or holds_open(s, t):
                 return
+            if not (t.get("accepted_at") or t.get("merge_queued") or t.get("merge_requested") or t.get("auto_merge")):
+                t["merged_outside"] = True
             t["merged"] = True
             watch_main(s, t, (v.get("mergeCommit") or {}).get("oid"))
             if t.get("merge_queued"):

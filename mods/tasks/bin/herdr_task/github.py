@@ -265,6 +265,41 @@ def pr_merged(task, repo):
         return None
 
 
+def branch_prs(task, repo):
+    """MSHEP-19: every pull request from this repo whose head is the task's branch, into its base, in any state
+    (gh's list: number, url, state, headRefOid, mergeCommit). [] when there is none or GitHub couldn't say."""
+    if not task.get("branch"):
+        return []
+    ok, out, _ = gh("pr", "list", "--repo", repo, "--head", task["branch"], "--state", "all",
+                    "--json", "number,url,state,isCrossRepository,baseRefName,headRefOid,mergeCommit")
+    try:
+        found = json.loads(out) if ok and out else []
+        return [p for p in found if not p.get("isCrossRepository")
+                and p.get("baseRefName") == (task.get("base") or "main")]
+    except (ValueError, TypeError, AttributeError):
+        return []
+
+
+def reconcile_pr(task, v):
+    """MSHEP-19: what GitHub says of the task's own branch, beside the pull request on record (v: its view). The
+    record follows the work: a merged pull request from the branch (any when the recorded one is closed; at the
+    recorded one's head when it is open, so a later follow-up's isn't taken for it) makes it merged; a closed
+    one with another open follows that one. Returns (state, found): "merged" | "switch" | None."""
+    pr = task["pr"]
+    found = branch_prs(task, pr["repo"])
+    mine = [p for p in found if p.get("number") != pr["number"]]
+    closed = v.get("state") == "CLOSED"
+    merged = next((p for p in mine if p.get("state") == "MERGED"
+                   and (closed or p.get("headRefOid") == v.get("headRefOid"))), None)
+    if merged:
+        return "merged", merged
+    if closed:
+        opened = next((p for p in mine if p.get("state") == "OPEN"), None)
+        if opened:
+            return "switch", opened
+    return None, None
+
+
 def landed(s, task):
     """Its own work is in its base branch, though not as its commits (squash-merged, SHEP-59):
     merging its tip into the base, here or on its remote, would change nothing. Only a branch with
@@ -344,11 +379,34 @@ def pr_view(task):
             v["checks_unknown"] = True
     if v.get("statusCheckRollup"):
         v["statusCheckRollup"] = latest_checks(v["statusCheckRollup"])
+    if not v.get("statusCheckRollup") and v.get("state") == "OPEN":
+        # MSHEP-19: no check on the pull request itself (a fork starts none), but a workflow run finished at its head
+        # (a workflow_dispatch Check run too) says the checks ran: its result stands for them.
+        v["statusCheckRollup"] = run_rows(pr["repo"], v.get("headRefOid"))
     if v.get("state") == "OPEN" and not pr_pending(v) and runs_pending(pr["repo"], v.get("headRefOid")):
         # #1044: a workflow run at its head not finished, its jobs not all shown as checks yet (a job
         # that waits on another's needs, a run waiting for a runner): its checks still run.
         v["runs_pending"] = True
     return v
+
+
+def run_rows(repo, sha):
+    """The finished workflow runs of any event at commit sha, as check rows ([] when none, or GitHub couldn't say):
+    a pull request that shows no checks of its own still has these (MSHEP-19)."""
+    if not sha:
+        return []
+    ok, out, _ = gh("api", f"repos/{repo}/actions/runs?head_sha={sha}&per_page=50",
+                    "-q", "[.workflow_runs[] | {name, status, conclusion, created_at, updated_at}]")
+    try:
+        runs = json.loads(out) if ok else []
+    except ValueError:
+        return []
+    rows = []
+    for r in runs if isinstance(runs, list) else []:
+        if isinstance(r, dict) and r.get("status") == "completed" and r.get("conclusion"):
+            rows.append({"name": r.get("name") or "workflow run", "workflowName": r.get("name") or "", "status": "COMPLETED",
+                         "conclusion": str(r["conclusion"]).upper(), "startedAt": r.get("created_at") or ""})
+    return latest_checks(rows)
 
 
 def runs_pending(repo, sha):
