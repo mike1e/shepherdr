@@ -1504,6 +1504,22 @@ class BackToWork(unittest.TestCase):
         self.assertEqual((t["state"], t["pr"]["number"], t["pr"]["switched_from"], "attention" in t), ("ready", 56, 593, False))
         self.assertEqual(len(report["pr_switched"]), 1)
 
+    def test_hla4_closed_pull_request_follows_the_open_one_into_main(self):
+        # MSHEP-22: HLA-4's shape: running, "closed" in Needs you, based on an old branch, the open #56 targets main
+        t = self.pr_task()
+        t["state"], t["base"], t["attention"] = "running", "rowan/old-branch", "The pull request was closed."
+        self.fake_gh([dict(self.SIB, number=56, state="OPEN"), dict(self.SIB, number=593, state="CLOSED")])
+        got, report = self.queue_tick({"state": "CLOSED", "headRefOid": "abc"})
+        self.assertEqual((t["pr"]["number"], t["pr"]["switched_from"], "attention" in t), (56, 593, False))
+        self.assertEqual(len(report["pr_switched"]), 1)
+
+    def test_hla4_merged_pull_request_into_main_makes_it_done(self):
+        t = self.pr_task()
+        t["base"] = "rowan/old-branch"
+        self.fake_gh([dict(self.SIB, number=56, state="MERGED", mergeCommit={"oid": "f00"})])
+        got, report = self.queue_tick({"state": "CLOSED", "headRefOid": "old"})
+        self.assertEqual((t["state"], t["pr"]["number"]), ("done", 56))
+
     def test_a_closed_pull_request_with_no_sibling_keeps_saying_so(self):
         t = self.pr_task()
         self.fake_gh([dict(self.SIB, number=593, state="CLOSED")])

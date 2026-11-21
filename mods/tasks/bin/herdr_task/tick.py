@@ -120,7 +120,7 @@ def facts(s, t, report):
                 pr.update(number=other["number"], url=other["url"], switched_from=pr["number"], checked=0)
                 for k in ("head_sha", "head_at", "expects", "watch", "wait", "needs_approval"):
                     pr.pop(k, None)
-                if t.get("attention", "").startswith("The pull request was closed"):
+                if t.get("attention", "").startswith(("The pull request was closed", CHECKS_NEVER)):
                     t.pop("attention", None)
                     t.pop("attention_at", None)
                 report.setdefault("pr_switched", []).append(f"{s.ref(t)}: #{pr['switched_from']} closed, now #{other['number']}")
