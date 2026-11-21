@@ -18,6 +18,7 @@ from .commands import (
     cmd_dequeue, cmd_resume, cmd_review, cmd_review_more, cmd_reviewed, cmd_rm, cmd_show, cmd_start, cmd_state, cmd_status,
     cmd_switch, cmd_unarchive, cmd_where,
 )
+from .ownership import GUARDED, GUARDED_AUTO, guard_foreign
 from .tick import cmd_tick
 from .backups import cmd_backup, cmd_restore_spaces
 from .automations import auto_list, cmd_auto, cmd_scheduler, cmd_track, EVENTS, HOW
@@ -176,6 +177,8 @@ def main():
         c.add_argument("--folder", help="the task folder (default: here)")
         c.add_argument("--json", action="store_true")
         c.set_defaults(fn=fn)
+        if name in GUARDED or name == "add":
+            c.add_argument("--force", action="store_true", help="also when another space owns this folder (the home Assistant needs no --force)")
         return c
 
     def notes_opts(c):
@@ -224,7 +227,7 @@ def main():
     g.add_argument("--worktree", action="store_true", help="work in a git worktree (default in repos)")
     c.add_argument("--after", help="start only once these tasks are done: 3,5; another folder's by its id (WEB-2), another "
                                    "machine's with the machine first (vm-b:HAT-12)")
-    c.add_argument("--space", help="the space it's for, whose settings it takes (default: yours)")
+    c.add_argument("--space", help="the space it's for, whose settings it takes (default: the space that owns the folder)")
     when_opts(c)
     c = cmd("show", cmd_show, "one task")
     c.add_argument("--evidence", action="store_true", help="with what its Accept card shows: commits, changed files, checks and its proof")
@@ -334,6 +337,8 @@ def main():
         c.add_argument("--folder")
         c.add_argument("--json", action="store_true")
         c.set_defaults(fn=cmd_auto)
+        if name in GUARDED_AUTO:
+            c.add_argument("--force", action="store_true", help="also when another space owns this folder")
         if fields:
             c.add_argument("--prompt")
             c.add_argument("--prompt-file")
@@ -343,7 +348,7 @@ def main():
             c.add_argument("--from", dest="from_", help="hear another folder's task events instead of this one's: "
                            "vm-b:~/dev/app (another machine linked to this one) or a folder here (\"\" clears)")
             c.add_argument("--agent")
-            c.add_argument("--space", help="the space its tasks start in (default: yours)")
+            c.add_argument("--space", help="the space its tasks start in (default: the space that owns the folder)")
             c.add_argument("--parent", help="its tasks' agents' parent (default: you)")
             c.add_argument("--set", action="append", metavar="KEY=VALUE",
                            help="a setting for each task it adds, as add --set: review=on|off, review.rounds=1..10, proof=on|off, "
@@ -493,6 +498,7 @@ def main():
         p.print_help()
         return 1
     try:
+        guard_foreign(args)
         rc = args.fn(args)
     except Fail as e:
         return _refused(args, str(e))

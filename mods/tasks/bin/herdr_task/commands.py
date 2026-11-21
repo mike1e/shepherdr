@@ -20,6 +20,7 @@ from .agents import (
     agent_log, agent_running, background_jobs, busy_again, detail, fit, LINE_MAX, live_agents, ready_turns, STATUSES, SUMMARY_MAX,
     WORKING_AGAIN,
 )
+from .ownership import owned_default, space_for_new
 from .sessions import refresh_sessions
 from .github import (already_merged, checks_missing, github_unreachable, pr_for_branch, checks_since, drop_branch, expected_checks, finish, gh, github, merged_here, needs_approval, note_checks, own_work, pr_adopt, pr_open,
                      pr_pending, pr_problem, pr_view, remote_of, update_main, watch_main)
@@ -110,7 +111,7 @@ def cmd_add(args):
         t = s.new(args.title.strip(), prompt, mode)
         set_opts(t, args)
         set_priority(t, args)
-        space = bare(args.space) if args.space else caller_space()
+        space = space_for_new(s.loc["folder"], args.space, getattr(args, "force", False)) or caller_space()
         set_base(s, t, args.base, space, new=True)
         set_branch(s, t, getattr(args, "branch", None))
         set_notes(t, args)
@@ -118,7 +119,7 @@ def cmd_add(args):
             set_after(s, t, *parse_after(s, args.after))
         if at:
             # Started later by the scheduler, with no caller to ask: its space is kept now.
-            schedule(s, t, at, {"space": space or default_space()})
+            schedule(s, t, at, {"space": space or owned_default(s.loc["folder"], default_space)})
         v = view(s, t)
     if at:
         ensure_scheduler_quietly()
@@ -327,7 +328,8 @@ def cmd_start(args):
             t["mode"] = "worktree"
         set_branch(s, t, getattr(args, "branch", None))
         q = t.get("queue") or {}
-        space = bare(args.space) if args.space else (q.get("space") or default_space())
+        space = (space_for_new(s.loc["folder"], args.space, getattr(args, "force", False)) if args.space or not q.get("space") else q["space"]) \
+            or default_space()
         argv = agent_argv(None, args.argv) if args.argv else worker_argv(s, t, space, args.agent) if args.agent else \
             (q.get("argv") or worker_argv(s, t, space))
         parent = args.parent or q.get("parent")
@@ -1092,7 +1094,7 @@ def cmd_resume(args):
             raise Fail(f"{s.ref(t)} still has an agent ({live[0]['address']}). Use switch to replace it.")
         if t["state"] in ("todo", "scheduled", "queued"):
             raise Fail(f"{s.ref(t)} hasn't started. Use start.")
-        space = bare(args.space) if args.space else (t.get("space") or default_space())
+        space = bare(args.space) if args.space else (t.get("space") or owned_default(s.loc["folder"], default_space))
         if t["state"] == "done":
             t["state"] = "running"
         gone = [k["address"] for k in live_agents(s.key(t))]  # its agents' terminals, none running an agent
@@ -1132,7 +1134,7 @@ def cmd_switch(args):
         labels = (old or {}).get("labels") or {}
         # A given --space wins: the task moves there (#837); else the old agent's own space.
         space = ((bare(args.space) if args.space else None) or labels.get("herdr.task.space") or labels.get("herdr.space")
-                 or t.get("space") or default_space())
+                 or t.get("space") or owned_default(s.loc["folder"], default_space))
         if t["state"] in ("todo", "scheduled", "queued", "done"):
             t["state"] = "running"
             t.setdefault("started", now())
@@ -1184,7 +1186,7 @@ def tell(s, t, msg, args):
         if not send_or_hold(live[-1]["address"], msg):
             raise Fail(f"hc send to {live[-1]['address']} failed")
         return live[-1]["address"], False
-    space = bare(args.space) if getattr(args, "space", None) else (t.get("space") or default_space())
+    space = bare(args.space) if getattr(args, "space", None) else (t.get("space") or owned_default(s.loc["folder"], default_space))
     a, _ = start_again(s, t, space, getattr(args, "agent", None), getattr(args, "argv", None), message=msg)
     return a["address"], True
 

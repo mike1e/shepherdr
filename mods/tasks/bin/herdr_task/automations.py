@@ -17,6 +17,7 @@ from .settings import bare, set_task, settings_for, SET_KEYS, worker_argv, workt
 from .agents import agent_running, live_agents, starting, status_of, task_status
 from .sessions import session_of
 from .launch import default_space
+from .ownership import space_for_new
 from .store import locate, open_store, read_list, Store, store_files
 from .queues import queue_reason
 from .archive import archive_pass
@@ -298,8 +299,7 @@ def cmd_auto(args):
             a = {"id": s.data.get("auto_next", 1), "title": args.title.strip(), "prompt": "", "created": now(), "paused": False,
                  "mode": "worktree" if s.loc["kind"] == "repo" else "here", "runs": []}
             set_auto_fields(s, a, args, adding=True)
-            if not a.get("space"):
-                a["space"] = default_space()
+            a["space"] = space_for_new(s.loc["folder"], a.get("space"), getattr(args, "force", False)) or default_space()
             if not a.get("parent") and os.environ.get("HC_TERMINAL_ID"):
                 a["parent"] = os.environ["HC_TERMINAL_ID"]
             s.data["auto_next"] = a["id"] + 1

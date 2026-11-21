@@ -3374,6 +3374,8 @@ class Scheduled(unittest.TestCase):
                    mock.patch.object(commands, "ensure_scheduler", lambda quiet=False: {}),
                    mock.patch.object(commands, "default_space", lambda: "sp1"),
                    mock.patch.object(commands, "caller_space", lambda: None),
+                   mock.patch("herdr_task.ownership.spaces_here", lambda: None),
+                   mock.patch("herdr_task.launch.coordinators", lambda: []),
                    mock.patch.object(commands, "worker_argv", lambda s, t, space, key=None: ["claude"]),
                    mock.patch.object(tick, "worker_argv", lambda s, t, space, key=None: ["claude"]),
                    mock.patch.object(commands, "live_agents", lambda key: []),
@@ -4070,6 +4072,8 @@ class AutomationFromAnotherMachine(unittest.TestCase):
                    mock.patch.object(au, "worker_argv", lambda s, t, space: ["claude"]),
                    mock.patch.object(au, "ensure_scheduler", lambda quiet=False: {}),
                    mock.patch.object(au, "default_space", lambda: "sp1"),
+                   mock.patch("herdr_task.ownership.spaces_here", lambda: None),
+                   mock.patch("herdr_task.launch.coordinators", lambda: []),
                    mock.patch.object(au, "live_agents", lambda key: []),
                    mock.patch.object(machines, "connected_machines", lambda: [{"name": "vmb", "state": "connected"}]),
                    mock.patch.object(ap, "autopilot_pass", lambda r: None), mock.patch.object(home, "home_pass", lambda r: None),
@@ -6453,3 +6457,93 @@ class DequeueAndRemove(unittest.TestCase):
             f = self.run_cmd(fn, check=True)
             self.assertEqual((f["ref"], f["agents"], f["pr"]["number"], f["unpushed"], f["uncommitted"], f["branch"]), ("SHEP-1", ["t1"], 7, 1, 0, "task/1"))
         self.assertEqual((len(self.store.data["tasks"]), self.task["state"], self.calls), (1, "running", []))
+
+
+class TasksBelongToTheirSpace(unittest.TestCase):
+    """MSHEP-17: a task starts in the space that owns its folder, not its caller's; an Assistant of another
+    space is refused on it (the home Assistant and --force aren't); a folder no space owns says so."""
+    run_cmd, add, task = Scheduled.run_cmd, Scheduled.add, Scheduled.task
+
+    def setUp(self):
+        Scheduled.setUp(self)
+        from unittest import mock
+        import herdr_task.ownership as own
+        self.own = own
+        home = own.HOME
+        self.spaces = [{"id": "dcn", "name": "[DCN] daycarenearme", "folder": os.path.join(self.tmp, "daycare")},
+                       {"id": "app", "name": "[APP] app", "folder": self.folder},
+                       {"id": "home", "name": "[HOME]", "folder": home}]
+        self.caller_labels = {"herdr.space": "dcn", "herdr.role": "coordinator"}
+        self.assistant = None
+        fake = lambda *a: {"labels": self.caller_labels, "template": "assistant", "cwd": "/x"}
+        for p in (mock.patch.object(own, "spaces_here", lambda: self.spaces),
+                  mock.patch.object(own, "hc_json", fake),
+                  mock.patch.dict(os.environ, {"HC_TERMINAL_ID": "t1"}),
+                  mock.patch("herdr_task.launch.coordinator_in", lambda sp: self.assistant)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def as_caller(self, space, role="coordinator"):
+        self.caller_labels = {"herdr.space": space, "herdr.role": role}
+
+    def guard(self, cmd, **kw):
+        import argparse
+        self.own.guard_foreign(argparse.Namespace(cmd=cmd, id="1", folder=self.folder, force=False, **kw))
+
+    def test_a_task_added_without_a_space_takes_its_folders_space(self):
+        # DCN's Assistant adds a task for the app folder: no --space, and it goes to the app space
+        self.assertEqual(self.commands.space_for_new(self.folder), "app")
+        self.add("Fix login")
+        self.add("Later", **{"in_": "1h"})
+        self.assertEqual(self.task(2)["queue"]["space"], "app")
+
+    def test_a_foreign_space_is_refused_for_another_assistant(self):
+        with self.assertRaises(self.Fail) as e:
+            self.commands.space_for_new(self.folder, "dcn")
+        self.assertIn("belongs to space [APP] app (app), not yours (dcn)", str(e.exception))
+        self.assertIn("tell-assistant app", str(e.exception))
+        self.assertEqual(self.commands.space_for_new(self.folder, "dcn", True), "dcn")  # --force
+
+    def test_the_home_assistant_may_start_anything_with_a_space(self):
+        self.as_caller("home")
+        self.assertEqual(self.commands.space_for_new(self.folder, "dcn"), "dcn")
+        self.assertEqual(self.commands.space_for_new(self.folder), "app")  # without --space it is the folder's own
+
+    def test_a_folder_with_no_space_gives_the_new_message(self):
+        lone = os.path.join(self.tmp, "lone")
+        os.makedirs(lone)
+        with self.assertRaises(self.Fail) as e:
+            self.commands.space_for_new(lone)
+        self.assertEqual(str(e.exception), f'No space owns {lone}: create one (herdr-app do space.new --name "[PFX] lone" '
+                         f"--folder {lone}) and its Assistant tab, then start the task with --space.")
+        self.assertEqual(self.commands.space_for_new(lone, "dcn"), "dcn")
+
+    def test_add_refuses_a_foreign_explicit_space(self):
+        with self.assertRaises(self.Fail):
+            self.add("Fix login", space="dcn")
+        self.assertEqual(self.add("Fix login", space="app")["title"], "Fix login")
+
+    def test_assistant_of_another_space_cannot_act_on_a_task(self):
+        for cmd in ("start", "review-more", "accept", "merge", "done", "rm", "dequeue", "edit", "resume", "switch", "fix"):
+            with self.assertRaises(self.Fail, msg=cmd) as e:
+                self.guard(cmd)
+            self.assertIn("belongs to space [APP] app (app)", str(e.exception))
+        with self.assertRaises(self.Fail):
+            self.guard("auto", auto="add")
+        self.guard("auto", auto="list")
+        self.guard("show")
+        self.guard("status")
+
+    def test_the_owner_home_force_and_people_may(self):
+        self.as_caller("app")
+        self.guard("start")  # the owner's own Assistant
+        self.as_caller("home")
+        self.guard("start")  # the home Assistant
+        self.as_caller("dcn")
+        import argparse
+        self.own.guard_foreign(argparse.Namespace(cmd="rm", id="1", folder=self.folder, force=True))
+        self.caller_labels = {}
+        self.guard("rm")  # the person at a terminal: no space
+        self.as_caller("dcn", role="worker")
+        self.own.hc_json = lambda *a: {"labels": self.caller_labels, "template": "claude"}
+        self.guard("rm")  # a task agent is not an Assistant
