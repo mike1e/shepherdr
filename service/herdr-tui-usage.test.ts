@@ -63,7 +63,7 @@ test("prefix keys map to the TUI's commands", () => {
 });
 
 // @ts-ignore
-import { add, toggle, remove, ordered, clearDone, count } from "../mods/herdr-tui-todo/todos.js";
+import { add, toggle, remove, ordered, clearDone, count } from "../core/todos.js";
 test("the inbox adds, ticks, orders, sweeps and counts", () => {
   let l = add(undefined, "  call bank ", 1);
   l = add(l, "", 2);
