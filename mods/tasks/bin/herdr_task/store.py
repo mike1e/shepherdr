@@ -350,16 +350,20 @@ class Store:
             self.dirty = True
 
 
-def open_store(args, write=True):
-    """The list a command works on: --folder's, else the one whose prefix the id names (HAT-4
-    from anywhere), else the current folder's."""
+def folder_arg(args):
+    """--folder's, else the folder whose prefix the id names (HAT-4 from anywhere), else None (here)."""
     folder = getattr(args, "folder", None)
     ref = getattr(args, "id", None)
     if not folder and ref:
         m = re.fullmatch(r"([A-Za-z]+[0-9]*)-[Aa]?[0-9]+", str(ref).strip())
         if m:
             folder = prefixes_in_use().get(m.group(1).upper())
-    return Store(locate(folder), write)
+    return folder
+
+
+def open_store(args, write=True):
+    """The list a command works on: folder_arg's, else the current folder's."""
+    return Store(locate(folder_arg(args)), write)
 
 
 def is_task_list(d):
