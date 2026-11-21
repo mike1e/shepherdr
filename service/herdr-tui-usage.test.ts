@@ -100,31 +100,14 @@ test("the inbox row wiring: box and text share one toggle click, x is a separate
   expect(tick).not.toContain('child("x")');
 });
 
-// @ts-ignore
-import { arrange, move, hide, show, fullOrder } from "../mods/herdr-tui-usage/order.js";
-const R = (...c: string[]) => c.map((cli) => ({ cli, lines: [] }));
-
-test("usage order: claude then codex by default, a new CLI goes last and shown", () => {
-  expect(arrange(R("codex", "claude"), null).shown.map((r: any) => r.cli)).toEqual(["claude", "codex"]);
-  expect(arrange(R("zed", "codex", "claude"), {}).shown.map((r: any) => r.cli)).toEqual(["claude", "codex", "zed"]);
-  expect(fullOrder({ order: ["codex", "claude"] }, ["gem"])).toEqual(["codex", "claude", "gem"]);
+test("the usage block has no reorder/hide buttons and no order helpers", async () => {
+  const src = await Bun.file(new URL("../mods/herdr-tui-usage/main.js", import.meta.url)).text();
+  for (const bad of ["↑", "↓", "×", "hidden", "setShared", "order.js"]) expect(src).not.toContain(bad);
+  expect(await Bun.file(new URL("../mods/herdr-tui-usage/order.js", import.meta.url)).exists()).toBe(false);
 });
 
-test("usage order: move swaps with the neighbour, edges do nothing, hidden keep their place", () => {
-  const p = move(null, ["claude", "codex"], "codex", -1);
-  expect(arrange(R("claude", "codex"), p).shown.map((r: any) => r.cli)).toEqual(["codex", "claude"]);
-  expect(move(null, ["claude", "codex"], "claude", -1).order).toEqual([]);
-  expect(move(p, ["codex", "claude"], "claude", 1).order).toEqual(["codex", "claude"]);
-  const h = hide({ order: ["claude", "codex", "zed"] }, "codex");
-  expect(move(h, ["claude", "zed"], "zed", -1).order).toEqual(["zed", "claude", "codex"]);
-});
-
-test("usage order: hide and show; shown again goes last; junk in the store is ignored", () => {
-  const h = hide(null, "claude");
-  const a = arrange(R("claude", "codex"), h);
-  expect(a.shown.map((r: any) => r.cli)).toEqual(["codex"]);
-  expect(a.hidden).toEqual(["claude"]);
-  expect(arrange(R("claude", "codex"), show(h, "claude", ["claude", "codex"])).shown.map((r: any) => r.cli)).toEqual(["codex", "claude"]);
-  expect(arrange(R("claude"), { order: [1, null], hidden: "x" }).shown.length).toBe(1);
-  expect(arrange([{ cli: "", lines: [] }], h).shown.length).toBe(1);
+test("usage rows come in the fixed order: claude, codex, then others", () => {
+  const ok = { state: "ok", at: NOW, windows: [{ name: "Weekly", used: 10 }] };
+  const rows = usageRows({ limits: { zed: ok, codex: ok, claude: ok } }, NOW);
+  expect(rows.map((r: any) => r.cli)).toEqual(["claude", "codex", "zed"]);
 });
