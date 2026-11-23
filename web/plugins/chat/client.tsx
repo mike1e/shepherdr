@@ -28,7 +28,7 @@ import { typing, working } from './typing.ts'
 import { suggestionOf, suggestionsOn } from './suggest.ts'
 import { JobsSheet, JobsTag, NeedsYou, openSubagent, TurnLine, useSubagent, WorkingLine } from './activity.tsx'
 import { ClockIcon } from '@heroicons/react/16/solid'
-import { AskedRow, Band, BriefRow, Chips, EndedRow, ErrorRow, NoteRow, Notice, HeadRow, ImagesLine, NewsRow, onTerminal, PilotRow, PublishingRow, questionsBelow, ReplyLine, Thumbs, WORDS } from './rows.tsx'
+import { AskedRow, Band, Stamp, BriefRow, Chips, EndedRow, ErrorRow, NoteRow, Notice, HeadRow, ImagesLine, NewsRow, onTerminal, PilotRow, PublishingRow, questionsBelow, ReplyLine, Thumbs, WORDS } from './rows.tsx'
 import { AgentLine, openModelMenu, openRestart, RestartSheet } from '@client/restart.tsx'
 import { Sheet, SheetClose } from '@client/Stack.tsx'
 import { expandPicked, forMarkdown, mentionItems, MentionList, pickable, takeItem, useReach, withChips, type Item } from './mentions.tsx'
@@ -127,6 +127,7 @@ function Bubble({ msg, chat, from, out, last, pics, images, writing }: { msg: Me
       {anchor && body ? shots : null}
       {anchor && body && images ? <ImagesLine n={images} /> : null}
       {band}
+      {!band && msg.at && (msg.question || art) ? <div className={clsx('flex', you ? 'self-end' : 'self-start')}><Stamp at={msg.at} /></div> : null}
       {!band && reacted && !art ? <div className="mt-1 flex flex-wrap gap-1">{edge}</div> : null}
       {pending && menu ? <PendingMenu out={pending} onClose={() => setMenu(false)} /> : null}
     </div>

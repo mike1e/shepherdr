@@ -913,7 +913,10 @@ export default class Chat extends View {
   // can come a little after the ask): the moment of that line, when there is one near `at`.
   afterNews(ref, at) {
     const near = (this.needsAt?.get(ref) ?? []).filter((n) => n >= at - 300000 && n <= at + 1800000);
-    return near.length ? Math.max(at, Math.max(...near) + 1) : at;
+    const shown = near.length ? Math.max(at, Math.max(...near) + 1) : at;
+    // the row sits after its news, but its time is when it really happened
+    if (shown !== at) (this.rawAt ??= new Map()).set(shown, at);
+    return shown;
   }
 
   // The cards waiting in this chat, each with its moment: this agent's own (an ask, a secret,
@@ -2972,7 +2975,7 @@ export default class Chat extends View {
       ...cards.filter((c) => !(c === ownQ && qAt >= 0)).map((c) => ({ at: c.at, card: c }))]
       .sort((a, b) => a.at - b.at);
     // A card is a run of strips, one list row each (strips.js), kept together as one block.
-    const putCard = (c) => c.strips.forEach((s, j) => out.push({ kind: "cardstrip", id: `cs:${c.id}:${s.key}`, s: s.kind === "head" && c.at > 1e12 ? { ...s, at: c.at } : s, blk: c.id, first: j === 0, last: j === c.strips.length - 1,
+    const putCard = (c) => c.strips.forEach((s, j) => out.push({ kind: "cardstrip", id: `cs:${c.id}:${s.key}`, s: s.kind === "head" && c.at > 1e12 ? { ...s, at: this.rawAt?.get(c.at) ?? c.at } : s, blk: c.id, first: j === 0, last: j === c.strips.length - 1,
       sig: strips.sig(s), owner: c.owner, ask: c.ask }));
     const put = (e) => { if (e.card) putCard(e.card); else out.push(e.row); };
     let ti = 0;
@@ -3313,7 +3316,7 @@ export default class Chat extends View {
         .child(x.clip ? this.clipped(t.raised, x.clip, TextView.markdown(`${pre}chat-md-fold-${x.id}`, this.findMark(this.mentionsIn(shownLines(text, x.clip, most - 24))) || " ").selectable(true))
           : TextView.markdown(`${pre}chat-md-${x.id}`, this.findMark(this.mentionsIn(text)) || " ").selectable(true)));
     // A quiet row's time at its right end, dim, in the band's own style (clock()); none when the row has no moment.
-    const stamp = (at) => (at > 1e12 ? div().flex_none().pl(6).text_size(11.5).text_color(t.dim).child(clock(at)) : div().flex_none());
+    const stamp = (at) => (at > 1e12 ? div().flex_none().pl(6).text_size(11.5).text_color(t.dim).child(clock(this.rawAt?.get(at) ?? at)) : div().flex_none());
     const fileLine = (label) => h_flex().gap(5).items_center().text_size(12).text_color(t.dim)
       .child(svg("mods/chat/paperclip.svg").size(12).flex_none()).child(div().truncate().child(label));
     switch (x.kind) {

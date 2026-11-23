@@ -659,7 +659,7 @@ export class Conversation {
     const last = this.items[this.items.length - 1];
     const s = { id, kind: st.kind, line: st.line, count: st.count ?? 1, helper, ...(st.shell ? { shell: st.shell, at: st.at } : {}) };
     if (last?.kind === "tools") last.steps.push(s);
-    else this.push({ kind: "tools", id: `t${off}`, at: st.at, steps: [s] });
+    else this.push({ kind: "tools", id: `t${off}`, at: st.ts, steps: [s] });
     if (this.pilot) this.pilot.steps++;
     this.calls.set(id, s);
     this.open.set(id, st.doing);
@@ -974,7 +974,7 @@ export class Conversation {
               if (this.stops.size > 20) this.stops.delete(this.stops.keys().next().value);
             }
             const st = claudeStep(String(b.name ?? ""), b.input ?? {});
-            if (st) st.at = time(l.timestamp) || Date.now();
+            if (st) { st.at = time(l.timestamp) || Date.now(); st.ts = time(l.timestamp) || undefined; }
             this.step(String(b.id), off, st, b.name === "Agent" || b.name === "Task" ? String(b.id) : null);
             if (b.name === "Bash" && ARTIFACT.test(String(b.input?.command ?? ""))) this.push({ kind: "artifact", id: `art${off}`, at: time(l.timestamp) });
             if (b.name === "Bash") this.sent(String(b.input?.command ?? ""), off, time(l.timestamp));
@@ -1016,7 +1016,7 @@ export class Conversation {
           return;
         }
         const st = codexStep(String(p.name ?? "shell"), p.arguments ?? p.input ?? p.action);
-        if (st) st.at = time(l.timestamp) || Date.now();
+        if (st) st.ts = time(l.timestamp) || undefined;
         // Codex's helpers count as running until its turn ends (its log says no more).
         if (st?.spawn) this.helpers.set(cid, { desc: st.spawn, done: false, untilTurn: true });
         this.step(cid, off, st, st?.spawn ? cid : null);

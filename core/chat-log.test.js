@@ -223,6 +223,9 @@ test("every row the chat draws carries the moment it happened (a tools row, a qu
   const tools = c.items.find((x) => x.kind === "tools");
   expect(tools.at).toBe(Date.parse(at));
   expect(tools.at).toBeGreaterThan(1e12);
+  // no timestamp in the log: no time (never the moment it was read)
+  const u = await read([person, { ...reply("m2", [bash("toolu_t2", "ls")]), timestamp: undefined }]);
+  expect(u.items.find((x) => x.kind === "tools" && x.steps.some((s) => s.id === "toolu_t2"))?.at ?? undefined).toBeUndefined();
 });
 
 test("sendsOf reads only what a command really sends", () => {

@@ -69,7 +69,7 @@ class QuietRowsCarryTheirTime(unittest.TestCase):
             self.assertTrue(m and "stamp(x.at)" in m.group(0), kind)
         # the rows are built with their moment
         for needle in ('kind: "pilot", id: x.id, at: x.at', 'kind: "askend", id: `ae:${e.id}`, at: e.at',
-                       'kind: "tasknews", id: e.id, at: e.at', 's: s.kind === "head" && c.at > 1e12 ? { ...s, at: c.at }'):
+                       'kind: "tasknews", id: e.id, at: e.at', 's: s.kind === "head" && c.at > 1e12 ? { ...s, at: this.rawAt?.get(c.at) ?? c.at }', 'this.rawAt ??= new Map()'):
             self.assertIn(needle, SRC)
 
 
