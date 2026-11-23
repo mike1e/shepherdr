@@ -659,7 +659,7 @@ export class Conversation {
     const last = this.items[this.items.length - 1];
     const s = { id, kind: st.kind, line: st.line, count: st.count ?? 1, helper, ...(st.shell ? { shell: st.shell, at: st.at } : {}) };
     if (last?.kind === "tools") last.steps.push(s);
-    else this.push({ kind: "tools", id: `t${off}`, steps: [s] });
+    else this.push({ kind: "tools", id: `t${off}`, at: st.at, steps: [s] });
     if (this.pilot) this.pilot.steps++;
     this.calls.set(id, s);
     this.open.set(id, st.doing);
@@ -932,7 +932,7 @@ export class Conversation {
     } else if (l.type === "assistant") {
       if (l.isApiErrorMessage) {
         const err = (l.message?.content ?? []).filter((b) => b?.type === "text").map((b) => b.text).join("\n");
-        if (err) this.push({ kind: "error", id: `e${off}`, text: err });
+        if (err) this.push({ kind: "error", id: `e${off}`, text: err, at: time(l.timestamp) });
         return;
       }
       const m = l.message ?? {};
@@ -964,7 +964,7 @@ export class Conversation {
           if (b.name === "AskUserQuestion") {
             const qs = Array.isArray(b.input?.questions) ? b.input.questions : [];
             const text = qs.map((q) => q?.question).filter(Boolean).join("\n\n");
-            if (text) this.asked(String(b.id), { kind: "ask", id: `q${off}`, text });
+            if (text) this.asked(String(b.id), { kind: "ask", id: `q${off}`, text, at: time(l.timestamp) });
             this.open.set(b.id, "Asking you something");
             this.doing = "Asking you something";
           } else {
@@ -1010,12 +1010,13 @@ export class Conversation {
           const text = (Array.isArray(a?.questions) ? a.questions : []).map((q) => [q?.question, ...(Array.isArray(q?.options) ? q.options.map((o) => `- ${o?.label ?? o}`) : [])].filter(Boolean).join("\n")).join("\n\n");
           // its questions as they were asked, for the card that answers them on its screen (core/asks.js codexSteps)
           const questions = codexQuestions(a);
-          if (text) this.asked(cid, { kind: "ask", id: `q${off}`, text, ...(questions.length ? { questions } : {}) });
+          if (text) this.asked(cid, { kind: "ask", id: `q${off}`, text, at: time(l.timestamp), ...(questions.length ? { questions } : {}) });
           this.open.set(cid, "Asking you something");
           this.doing = "Asking you something";
           return;
         }
         const st = codexStep(String(p.name ?? "shell"), p.arguments ?? p.input ?? p.action);
+        if (st) st.at = time(l.timestamp) || Date.now();
         // Codex's helpers count as running until its turn ends (its log says no more).
         if (st?.spawn) this.helpers.set(cid, { desc: st.spawn, done: false, untilTurn: true });
         this.step(cid, off, st, st?.spawn ? cid : null);

@@ -27,7 +27,7 @@ import { Sheet, SheetClose } from '@client/Stack.tsx'
 import { countJobs, jobsWords, rowsOf, stepText, took } from '@shared/activity.ts'
 import type { ActivityAnswer, Chat, Job, Step, StepKind, StepRow, TurnActivity } from '@shared/types.ts'
 import * as CV from '@core/chat-view.js'
-import { showTerminal, WORDS } from './rows.tsx'
+import { showTerminal, Stamp, WORDS } from './rows.tsx'
 const { elapsed } = CV as unknown as { elapsed: (secs: number) => string }
 
 /* ---------- words ---------- */
@@ -328,6 +328,7 @@ export function TurnLine({ a, chat }: { a: TurnActivity; chat: string }) {
         className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-[7px] px-1.5 py-px text-left text-[0.75rem]/5 text-fg3 hover:bg-hover phone:py-1.5 phone:text-[0.8125rem]/5">
         <Chev aria-hidden className="size-3 shrink-0 fill-current" />
         <span className="min-w-0 flex-1 truncate">{a.summary ?? `${a.steps} steps`}</span>
+        <Stamp at={a.at} />
       </button>
       {open ? <ToolSteps a={a} chat={chat} /> : null}
     </div>

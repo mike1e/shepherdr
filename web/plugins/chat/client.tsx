@@ -1298,7 +1298,7 @@ const Messages = memo(function Messages({ chat, from }: { chat: Chat; from: stri
                 <div data-quiet className="flex w-full flex-col">
                   {it.quiet.map((m) => (
                     <div key={m.id} data-msg={m.id} data-chat={chat.key} className="w-full">
-                      {m.activity ? <TurnLine a={m.activity} chat={chat.key} /> : m.brief ? <BriefRow msg={m} /> : m.news ? <NewsRow msg={m} /> : m.ended ? <EndedRow msg={m} /> : m.pilot ? <PilotRow msg={m} /> : <PublishingRow />}
+                      {m.activity ? <TurnLine a={m.activity} chat={chat.key} /> : m.brief ? <BriefRow msg={m} /> : m.news ? <NewsRow msg={m} /> : m.ended ? <EndedRow msg={m} /> : m.pilot ? <PilotRow msg={m} /> : <PublishingRow at={m.at} />}
                     </div>
                   ))}
                 </div>

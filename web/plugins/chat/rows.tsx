@@ -31,6 +31,11 @@ const { WORDS, clock, initialOf, bandActs, bandOrder, imagesLine, fitThumbs, THU
 }
 export { WORDS, questionsBelow }
 
+/** a row's time, dim at its right end and always shown (core's clock: 14:05 today, else 3 Nov 14:05); none without a moment */
+export function Stamp({ at }: { at?: number }) {
+  return at && at > 1e12 ? <time dateTime={new Date(at).toISOString()} className="shrink-0 pl-1.5 text-[0.71875rem] text-fg3 tabular-nums">{clock(at)}</time> : null
+}
+
 /** the small words of a quiet row: 12px, dim, as the window's */
 const quiet = 'text-[0.75rem]/5 text-fg3 phone:text-[0.8125rem]/5'
 
@@ -75,7 +80,7 @@ export function Band({ msg, chat, cli }: { msg: Message; chat: string; cli?: boo
   ) : null
   // as the window's: the pills 4px apart, 6px from the smiley (the band's own 2px gap and 4px here)
   const pillRow = pills ? <span key="pills" className={clsx('flex flex-wrap items-center gap-1', you ? 'pl-1' : 'pr-1')}>{pills}</span> : null
-  const stamp = time ? <time key="time" dateTime={new Date(msg.at!).toISOString()} className={clsx('shrink-0 text-[0.71875rem] text-fg3 tabular-nums', you ? 'pr-1' : 'pl-1', hover)}>{time}</time> : null
+  const stamp = time ? <time key="time" dateTime={new Date(msg.at!).toISOString()} className={clsx('shrink-0 text-[0.71875rem] text-fg3 tabular-nums', you ? 'pr-1' : 'pl-1')}>{time}</time> : null
   // the order is core's, as the window's: each side the other's mirror
   const part = (what: string) => (what === 'time' ? stamp : what === 'react' ? smiley : what === 'pills' ? pillRow : icon(what))
   return (
@@ -119,7 +124,7 @@ export function Chips({ msg }: { msg: Message }) {
 /* ---------- quiet rows ---------- */
 
 /** the window's quiet row: a chevron, its label, its first line; it opens to the words */
-function Opens({ label, text, bare, children }: { label: ReactNode; text?: string; bare?: boolean; children?: ReactNode }) {
+function Opens({ label, text, bare, at, children }: { label: ReactNode; text?: string; bare?: boolean; at?: number; children?: ReactNode }) {
   const [open, setOpen] = useState(false)
   const first = String(text ?? '').split('\n').find((l) => l.trim()) ?? ''
   const Chev = open ? ChevronDownIcon : ChevronRightIcon
@@ -128,7 +133,8 @@ function Opens({ label, text, bare, children }: { label: ReactNode; text?: strin
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={clsx('flex w-full min-w-0 items-center gap-1.5 rounded-[7px] px-1.5 py-px text-left hover:bg-hover phone:py-1.5', quiet)}>
         <Chev aria-hidden className="size-3 shrink-0" />
         <span className="shrink-0 text-fg2">{label}</span>
-        {!open && !bare && first ? <span className="min-w-0 flex-1 truncate">{first}</span> : null}
+        {!open && !bare && first ? <span className="min-w-0 flex-1 truncate">{first}</span> : <span className="flex-1" />}
+        <Stamp at={at} />
       </button>
       {open ? <div className="pt-1.5 pb-1 pl-[24px] text-[0.78125rem] text-fg2 phone:text-[0.875rem]">{children ?? <Markdown text={text ?? ''} />}</div> : null}
     </div>
@@ -140,7 +146,7 @@ function Opens({ label, text, bare, children }: { label: ReactNode; text?: strin
 export function BriefRow({ msg }: { msg: Message }) {
   if (msg.brief!.from) return <AgentRow from={msg.brief!.from} to={msg.brief!.to} text={msg.text} at={msg.at} />
   return (
-    <Opens label={msg.brief!.label} text={msg.text} bare={msg.brief!.bare}>
+    <Opens label={msg.brief!.label} text={msg.text} bare={msg.brief!.bare} at={msg.at}>
       <Markdown text={literal(msg.text ?? '')} />
     </Opens>
   )
@@ -164,7 +170,6 @@ function Avatar({ name, own }: { name: string; own?: boolean }) {
 function AgentRow({ from, to, text, at }: { from: string; to?: string; text?: string; at?: number }) {
   const [open, setOpen] = useState(false)
   const first = String(text ?? '').split('\n').find((l) => l.trim()) ?? ''
-  const time = at ? clock(at) : ''
   return (
     <div data-from={to ? undefined : from} data-to={to} className="flex w-full flex-col">
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}
@@ -179,7 +184,7 @@ function AgentRow({ from, to, text, at }: { from: string; to?: string; text?: st
           </>
         ) : null}
         {!open && first ? <span className="min-w-0 flex-1 truncate">{first}</span> : <span className="flex-1" />}
-        {time ? <span className="shrink-0 text-fg3 tabular-nums">{time}</span> : null}
+        <Stamp at={at} />
       </button>
       {open ? (
         <div className="mt-1 mb-1 ml-8 max-w-[min(100%_-_2rem,640px)] self-start rounded-[14px] rounded-tl-[4px] bg-bubble px-3 py-2 text-[0.8125rem] text-fg phone:text-[0.9375rem]">
@@ -209,6 +214,7 @@ export function NewsRow({ msg }: { msg: Message }) {
       <span className="shrink-0 font-medium text-fg2">{n.ref}</span>
       <span className={clsx('shrink-0', n.live ? 'text-need' : 'text-fg2')}>{n.what}</span>
       {n.text ? <><span className="shrink-0">·</span><span className="min-w-0 flex-1 truncate">{n.text}</span></> : <span className="flex-1" />}
+      <Stamp at={msg.at} />
       {n.accept ? (
         <button type="button" disabled={busy} onClick={(e) => { e.stopPropagation(); openAccept(n.task) }}
           className="press-dim ml-1 h-5 shrink-0 rounded-[6px] bg-fg px-2 text-[0.6875rem]/5 font-medium text-bg disabled:opacity-60 phone:h-7 phone:px-2.5 phone:text-xs/7">
@@ -224,7 +230,8 @@ export function EndedRow({ msg }: { msg: Message }) {
   return (
     <div className={clsx('flex w-full min-w-0 items-center gap-1.5 px-1.5 py-px', quiet)}>
       <CheckIcon className="size-3 shrink-0" />
-      <span className="min-w-0 truncate">{msg.ended}</span>
+      <span className="min-w-0 flex-1 truncate">{msg.ended}</span>
+      <Stamp at={msg.at} />
     </div>
   )
 }
@@ -234,7 +241,8 @@ export function PilotRow({ msg }: { msg: Message }) {
   return (
     <div data-pilot className={clsx('flex w-full min-w-0 items-center gap-1.5 px-1.5 py-px', quiet)}>
       <AutopilotIcon aria-hidden className="size-3 shrink-0" />
-      <span className="min-w-0 truncate">{msg.pilot}</span>
+      <span className="min-w-0 flex-1 truncate">{msg.pilot}</span>
+      <Stamp at={msg.at} />
     </div>
   )
 }
@@ -268,11 +276,12 @@ export function Notice({ chat, resume }: { chat: Chat; resume?: () => Promise<un
 }
 
 /** a publish the artifacts' registry doesn't list yet */
-export function PublishingRow() {
+export function PublishingRow({ at }: { at?: number }) {
   return (
     <div className={clsx('flex w-full min-w-0 items-center gap-1.5 px-1.5 py-px', quiet)}>
       <PageIcon className="size-3 shrink-0" />
-      <span className="min-w-0 truncate">{WORDS.publishing}</span>
+      <span className="min-w-0 flex-1 truncate">{WORDS.publishing}</span>
+      <Stamp at={at} />
     </div>
   )
 }
@@ -289,7 +298,12 @@ export function ImagesLine({ n }: { n: number }) {
 
 /** an error the CLI wrote: its words in red */
 export function ErrorRow({ msg }: { msg: Message }) {
-  return <div className="w-full self-start text-[0.78125rem] text-need phone:text-[0.875rem]">{msg.text}</div>
+  return (
+    <div className="flex w-full items-start self-start text-[0.78125rem] text-need phone:text-[0.875rem]">
+      <span className="min-w-0 flex-1">{msg.text}</span>
+      <Stamp at={msg.at} />
+    </div>
+  )
 }
 
 /** the agent's own question as the log has it: red while its dialog is open; once it's gone, calm */
@@ -297,8 +311,11 @@ export function AskedRow({ msg }: { msg: Message }) {
   const closed = msg.asked !== 'open'
   return (
     <div className="flex w-full flex-col gap-1 self-start rounded-[10px] px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--line2)]">
-      <div className={clsx('text-[0.75rem] font-medium phone:text-[0.8125rem]', closed ? 'text-fg3' : 'text-need')}>
-        {msg.asked === 'answered' ? WORDS.askedAnswered : closed ? WORDS.askedClosed : WORDS.asked}
+      <div className="flex items-center">
+        <span className={clsx('min-w-0 flex-1 text-[0.75rem] font-medium phone:text-[0.8125rem]', closed ? 'text-fg3' : 'text-need')}>
+          {msg.asked === 'answered' ? WORDS.askedAnswered : closed ? WORDS.askedClosed : WORDS.asked}
+        </span>
+        <Stamp at={msg.at} />
       </div>
       <div className={closed ? 'text-fg2' : 'text-fg'}><Markdown text={msg.text ?? ''} /></div>
     </div>
