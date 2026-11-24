@@ -913,7 +913,10 @@ export default class Chat extends View {
   // can come a little after the ask): the moment of that line, when there is one near `at`.
   afterNews(ref, at) {
     const near = (this.needsAt?.get(ref) ?? []).filter((n) => n >= at - 300000 && n <= at + 1800000);
-    return near.length ? Math.max(at, Math.max(...near) + 1) : at;
+    const shown = near.length ? Math.max(at, Math.max(...near) + 1) : at;
+    // the row sits after its news, but its time is when it really happened
+    if (shown !== at) (this.rawAt ??= new Map()).set(shown, at);
+    return shown;
   }
 
   // The cards waiting in this chat, each with its moment: this agent's own (an ask, a secret,
@@ -2079,7 +2082,7 @@ export default class Chat extends View {
       const live = last.get(e.ref) === e && (e.event === "needs-you" || e.event === "failed") && (x?.status === "needs" || asks);
       // Accept on the newest ready line while the task is still Ready.
       const accept = lastReady.get(e.ref) === e && x?.status === "ready" && !asks;
-      const row = { kind: "tasknews", id: e.id, ref: e.ref, task: x ?? null, taskId: x?.id ?? null, folder: x?.folder ?? null, title: x?.title ?? "",
+      const row = { kind: "tasknews", id: e.id, at: e.at, ref: e.ref, task: x ?? null, taskId: x?.id ?? null, folder: x?.folder ?? null, title: x?.title ?? "",
         ...newsWords(e, x), live, asks: live && asks, accept, busy: accept && this.accepting.has(e.ref) };
       if (e.made) extra.push({ at: e.at, row }); else inline.set(e.id, row);
     }
@@ -2202,7 +2205,7 @@ export default class Chat extends View {
   }
 
   // A message's band, every part in order with its left edge in the pane: { what, x, w,
-  // hover (shown only on hover), pill? }. The time takes a fixed width, so the places never
+  // hover (shown only on hover; the time is always shown), pill? }. The time takes a fixed width, so the places never
   // depend on how its digits draw.
   barLayout(bar) {
     const { left, right } = this.edges();
@@ -2216,7 +2219,7 @@ export default class Chat extends View {
     // Reactions off (an add-on): no smiley; the pills already there still show.
     const order = bandOrder(bar.side, bar.acts, { time: Boolean(time) && need + timeW <= room, react: addonOn("reactions") });
     for (const what of order) {
-      if (what === "time") add("time", timeW - ACT_GAP, ACT_GAP, { hover: true, text: time });
+      if (what === "time") add("time", timeW - ACT_GAP, ACT_GAP, { text: time });
       // The pills PILL_GAP apart, PILL_EDGE from what comes before or after them.
       else if (what === "pills") (bar.pills ?? []).forEach((p, i) => add(`pill:${p.emoji}`, PILL, i ? PILL_GAP : PILL_EDGE, { pill: p }));
       else add(what, ACT, what === "react" && bar.side !== "user" ? PILL_EDGE : ACT_GAP, { hover: true });
@@ -2961,18 +2964,18 @@ export default class Chat extends View {
     // Start screens answered or gone (screens.js): this agent's, and an Assistant's workers'.
     const screenEnds = [[this.addr, null], ...this.workerTasks()].flatMap(([addr, x]) => (addr ? cardsOf(addr) : [])
       .filter((c) => c.state !== "open").map((c) => ({ at: x?.ref ? this.afterNews(x.ref, c.opened) : c.opened,
-        row: { kind: "askend", id: `se:${c.id}`, text: `${x?.ref ? `${x.ref} · ` : ""}${c.cli}'s start screen · ${c.how}` } })));
+        row: { kind: "askend", id: `se:${c.id}`, at: c.opened, text: `${x?.ref ? `${x.ref} · ` : ""}${c.cli}'s start screen · ${c.how}` } })));
     // Cards waiting on the person, in the timeline at their moment (DECISIONS, Chat): this
     // agent's own question in place of its "Asked you" line, the rest by time.
     const cards = this.timelineCards();
     const ownQ = cards.find((c) => c.question && c.owner === this.cards);
     let qAt = -1;
     if (ownQ) for (let i = items.length - 1; i >= 0; i--) if (items[i].kind === "ask" && !items[i].closed) { qAt = i; break; }
-    const tasks = [...news.extra, ...this.askEnds.map((e) => ({ at: e.at, row: { kind: "askend", id: `ae:${e.id}`, text: `${e.title} · ${e.how}` } })), ...screenEnds,
+    const tasks = [...news.extra, ...this.askEnds.map((e) => ({ at: e.at, row: { kind: "askend", id: `ae:${e.id}`, at: e.at, text: `${e.title} · ${e.how}` } })), ...screenEnds,
       ...cards.filter((c) => !(c === ownQ && qAt >= 0)).map((c) => ({ at: c.at, card: c }))]
       .sort((a, b) => a.at - b.at);
     // A card is a run of strips, one list row each (strips.js), kept together as one block.
-    const putCard = (c) => c.strips.forEach((s, j) => out.push({ kind: "cardstrip", id: `cs:${c.id}:${s.key}`, s, blk: c.id, first: j === 0, last: j === c.strips.length - 1,
+    const putCard = (c) => c.strips.forEach((s, j) => out.push({ kind: "cardstrip", id: `cs:${c.id}:${s.key}`, s: s.kind === "head" && c.at > 1e12 ? { ...s, at: this.rawAt?.get(c.at) ?? c.at } : s, blk: c.id, first: j === 0, last: j === c.strips.length - 1,
       sig: strips.sig(s), owner: c.owner, ask: c.ask }));
     const put = (e) => { if (e.card) putCard(e.card); else out.push(e.row); };
     let ti = 0;
@@ -2991,7 +2994,7 @@ export default class Chat extends View {
       if (i === qAt) { putCard(ownQ); continue; }
       if (x.kind === "news") { const r = news.inline.get(x.id); if (r) { dated(x.at); out.push(r); } continue; }
       // An Autopilot wake: one quiet line, never its words (core/chat-log.js pilotLine).
-      if (x.kind === "pilot") { dated(x.at); out.push({ kind: "pilot", id: x.id, text: pilotLine(x) }); continue; }
+      if (x.kind === "pilot") { dated(x.at); out.push({ kind: "pilot", id: x.id, at: x.at, text: pilotLine(x) }); continue; }
       if (x.kind !== "mark") dated(x.at);
       // A message this agent sent another (SHEP-27): "Assistant → SHEP-4", drawn as another agent's message is.
       if (x.kind === "sent") {
@@ -3004,8 +3007,8 @@ export default class Chat extends View {
         // quiet line while the registry doesn't list it yet.
         const r = arts.get(x.id);
         // its latest card shows its key pictures and first lines (peekOf: this machine's artifacts)
-        if (r) out.push({ kind: "artifact", id: x.id, art: r.id, title: r.title, text: r.title, version: r.version, v: r.v, line: !r.latest, ...(r.latest ? { peek: this.peekOf(r.id, r.version) } : {}) });
-        else if (Date.now() - (x.at ?? 0) < 180000) out.push({ kind: "artifact", id: x.id, pending: true, text: "" });
+        if (r) out.push({ kind: "artifact", id: x.id, at: x.at, art: r.id, title: r.title, text: r.title, version: r.version, v: r.v, line: !r.latest, ...(r.latest ? { peek: this.peekOf(r.id, r.version) } : {}) });
+        else if (Date.now() - (x.at ?? 0) < 180000) out.push({ kind: "artifact", id: x.id, at: x.at, pending: true, text: "" });
         continue;
       }
       // This chat started the agent from a template with the person's words as its task: the
@@ -3013,7 +3016,7 @@ export default class Chat extends View {
       const ft = this.firstTask?.trim();
       if (i === first && this.start === 0 && x.kind === "user" && ft && this.t?.template && String(x.text ?? "").trim().endsWith(ft)) {
         const body = String(x.text).trim().slice(0, -ft.length).trim();
-        if (body) out.push({ kind: "brief", id: `${x.id}:b`, label: "New session", text: body });
+        if (body) out.push({ kind: "brief", id: `${x.id}:b`, label: "New session", text: body, at: x.at });
         x = { ...x, text: ft };
       }
       if (x.kind === "user" && !(i === first && ft && x.text === ft) && this.brief(x, i, first)) {
@@ -3021,7 +3024,7 @@ export default class Chat extends View {
         // A fresh start's handover says it all in its label.
         const restart = /^<restart>/.test(x.text ?? "");
         // Another agent's message (who: its sender) is drawn as a message (SHEP-12).
-        out.push({ kind: "brief", id: x.id, label: this.brief(x, i, first), text: restart ? x.text.replace(/<\/?restart>/g, "") : x.from ? unsigned(x.text) : x.text, bare: restart, ...(x.from ? { who: fromName(x, (f, t) => this.sender(f, t), this.names()), at: x.at } : {}) });
+        out.push({ kind: "brief", id: x.id, label: this.brief(x, i, first), text: restart ? x.text.replace(/<\/?restart>/g, "") : x.from ? unsigned(x.text) : x.text, bare: restart, at: x.at, ...(x.from ? { who: fromName(x, (f, t) => this.sender(f, t), this.names()) } : {}) });
         continue;
       }
       if (x.kind === "user") {
@@ -3312,6 +3315,8 @@ export default class Chat extends View {
         // Folded: only the lines that show (shownLines()), as their own view
         .child(x.clip ? this.clipped(t.raised, x.clip, TextView.markdown(`${pre}chat-md-fold-${x.id}`, this.findMark(this.mentionsIn(shownLines(text, x.clip, most - 24))) || " ").selectable(true))
           : TextView.markdown(`${pre}chat-md-${x.id}`, this.findMark(this.mentionsIn(text)) || " ").selectable(true)));
+    // A quiet row's time at its right end, dim, in the band's own style (clock()); none when the row has no moment.
+    const stamp = (at) => (at > 1e12 ? div().flex_none().pl(6).text_size(11.5).text_color(t.dim).child(clock(this.rawAt?.get(at) ?? at)) : div().flex_none());
     const fileLine = (label) => h_flex().gap(5).items_center().text_size(12).text_color(t.dim)
       .child(svg("mods/chat/paperclip.svg").size(12).flex_none()).child(div().truncate().child(label));
     switch (x.kind) {
@@ -3365,7 +3370,7 @@ export default class Chat extends View {
               .when(Boolean(x.to), (el) => el.child(svg("mods/chat/arrow-right.svg").size(12).flex_none().text_color(t.dim))
                 .child(div().flex_none().font_medium().text_color(t.foreground).child(x.to)))
               .child(div().flex_1().min_w(0).truncate().child(open ? "" : String(x.text ?? "").split("\n").find((l) => l.trim()) ?? ""))
-              .when(x.at > 1e12, (el) => el.child(div().flex_none().text_color(t.dim).child(clock(x.at)))))
+              .when(x.at > 1e12, (el) => el.child(stamp(x.at))))
             .when(open, (el) => el.child(h_flex().w_full().pl(26).pt(6).pb(2).child(div().max_w(most).px(12).py(8).rounded(12).bg(t.raised)
               .text_size(13).text_color(t.foreground).child(TextView.markdown(`${pre}chat-brief-${x.id}`, x.text || " ").selectable(true))))), 12, 0);
         }
@@ -3373,7 +3378,9 @@ export default class Chat extends View {
           .child(h_flex().gap(6).items_center().text_size(12).text_color(t.dim)
             .child(svg(`mods/workspace-chrome/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none())
             .child(div().flex_none().text_color(t.muted).child(x.label))
-            .when(!open && !x.bare, (el) => el.child(div().flex_1().min_w(0).truncate().child(String(x.text ?? "").split("\n").find((l) => l.trim()) ?? ""))))
+            .when(!open && !x.bare, (el) => el.child(div().flex_1().min_w(0).truncate().child(String(x.text ?? "").split("\n").find((l) => l.trim()) ?? "")))
+            .when(open || x.bare, (el) => el.child(div().flex_1()))
+            .when(x.at > 1e12, (el) => el.child(stamp(x.at))))
           .when(open, (el) => el.child(div().pl(18).pt(6).text_size(12.5).text_color(t.muted)
             .child(TextView.markdown(`${pre}chat-brief-${x.id}`, literal(x.text) || " ").selectable(true)))), 12, 0);
       }
@@ -3428,18 +3435,18 @@ export default class Chat extends View {
         // An Autopilot wake: why it woke and, once it shows, how it went; quiet, as a closed ask.
         return col(h_flex().w_full().py(QUIET_PY).gap(6).items_center().text_size(12).text_color(t.dim)
           .child(svg("mods/chat/rocket.svg").size(12).flex_none())
-          .child(div().min_w(0).truncate().child(x.text)), 18, 0);
+          .child(div().flex_1().min_w(0).truncate().child(x.text)).child(stamp(x.at)), 18, 0);
       case "askend":
         // A closed ask: what it asked and how it went, quiet (the card itself is gone).
         return col(h_flex().w_full().py(QUIET_PY).gap(6).items_center().text_size(12).text_color(t.dim)
           .child(svg("mods/chat/check.svg").size(12).flex_none())
-          .child(div().min_w(0).truncate().child(x.text)), 18, 0);
+          .child(div().flex_1().min_w(0).truncate().child(x.text)).child(stamp(x.at)), 18, 0);
       case "artifact": {
         const icon = (n) => svg("mods/artifacts/artifacts.svg").size(n).flex_none();
         // A "Published" line opens its artifact (clickRow): the pointer and a hover say so.
         if (x.pending || x.line) return col(h_flex().w_full().py(QUIET_PY).gap(6).items_center().text_size(12).text_color(t.dim).child(icon(12))
           .when(Boolean(x.art) && !x.pending, (el) => el.rounded(8).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.muted)))
-          .child(div().min_w(0).truncate().child(x.pending ? WORDS.publishing : published(x.title, x.v))), 18, 0);
+          .child(div().flex_1().min_w(0).truncate().child(x.pending ? WORDS.publishing : published(x.title, x.v))).child(stamp(x.at)), 18, 0);
         // The whole card opens it over this chat (rows take no handlers; clickRow): its title, "Artifact · v3" and Open,
         // then its key pictures and first lines (core/recipe.js preview, as the web app's card).
         const peek = x.peek;
@@ -3474,6 +3481,7 @@ export default class Chat extends View {
           .child(div().flex_none().text_color(x.live ? red() : t.muted).child(x.what))
           .when(Boolean(x.text), (el) => el.child(div().flex_none().child("·")).child(div().flex_1().min_w(0).truncate().child(x.text)))
           .when(!x.text, (el) => el.child(div().flex_1()))
+          .child(stamp(x.at))
           // The Tasks panel's own Accept (ui.js: primary, 20 in a row's line); its press comes
           // through clickRow().
           .when(Boolean(x.accept), (el) => el.child(this.acceptButton(x.busy)
@@ -3482,18 +3490,19 @@ export default class Chat extends View {
       case "ask":
         // Red while its dialog is open; once it's gone (answered, or closed without an answer), calm.
         return pad(v_flex().w_full().gap(4).px(12).py(10).rounded(10).border_1().border_color(t.border)
-          .child(div().text_size(12).font_medium().text_color(x.closed ? t.dim : t.blocked)
-            .child(x.closed === "answered" ? WORDS.askedAnswered : x.closed ? WORDS.askedClosed : WORDS.asked))
+          .child(h_flex().w_full().gap(6).items_center().child(div().flex_1().min_w(0).text_size(12).font_medium().text_color(x.closed ? t.dim : t.blocked)
+            .child(x.closed === "answered" ? WORDS.askedAnswered : x.closed ? WORDS.askedClosed : WORDS.asked)).child(stamp(x.at)))
           .child(div().text_color(x.closed ? t.muted : t.foreground).child(TextView.markdown(`${pre}chat-md-${x.id}`, x.text).selectable(true))));
       case "error":
-        return pad(div().w_full().text_size(12.5).text_color(t.blocked).child(x.text));
+        return pad(h_flex().w_full().gap(6).items_start().child(div().flex_1().min_w(0).text_size(12.5).text_color(t.blocked).child(x.text)).child(stamp(x.at)));
       case "tools": {
         const open = this.opened.has(x.id);
         return col(v_flex().w_full().px(6).py(QUIET_PY).rounded(7).cursor_pointer()
           .hover((s) => s.bg(t.hover))
           .child(h_flex().gap(6).items_center().text_size(12).text_color(t.dim)
             .child(svg(`mods/workspace-chrome/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none())
-            .child(div().flex_1().min_w(0).truncate().child(summary(x.steps))))
+            .child(div().flex_1().min_w(0).truncate().child(summary(x.steps)))
+            .child(stamp(x.at)))
           .when(open, (el) => el.child(v_flex().pl(18).pt(4).pb(2).gap(3).text_size(12).text_color(t.muted)
             .children(x.steps.flatMap((s) => {
               const out = this.results.get(s.id);

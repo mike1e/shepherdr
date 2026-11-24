@@ -18,6 +18,7 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, Input } from "gpui-base";
 import { button, red, RADIUS, TEXT } from "./ui.js";
+import { clock } from "./core/chat-view.js";
 
 const PAD = 12, LINK_GAP = 12;
 const GAPS = { controls: 6, pill: 4 };
@@ -62,7 +63,8 @@ function body(t, s, pre) {
       return h_flex().w_full().min_h(18).gap(LINK_GAP).items_center()
         .child(h_flex().flex_1().min_w(0).gap(8).items_center()
           .child(div().size(8).flex_none().rounded(4).bg(s.dot ?? red()))
-          .child(div().min_w(0).truncate().text_size(TEXT.label).font_medium().text_color(s.dot ? t.muted : red()).child(s.who)))
+          .child(div().min_w(0).truncate().text_size(TEXT.label).font_medium().text_color(s.dot ? t.muted : red()).child(s.who))
+          .when(s.at > 1e12, (el) => el.child(div().flex_none().text_size(11.5).text_color(t.dim).child(clock(s.at)))))
         .when((s.links ?? []).length > 0, (el) => el.child(h_flex().flex_none().gap(LINK_GAP).items_center().children(s.links.map((c) => ctlEl(t, c, pre)))));
     case "title":
       return div().min_w(0).text_size(TEXT.body).font_medium().text_color(t.foreground).child(s.text);

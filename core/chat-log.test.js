@@ -218,6 +218,16 @@ test("what the agent sends other agents (hc send, tell-assistant) is a message o
   expect(c.items.findIndex((x) => x.kind === "tools")).toBeLessThan(c.items.findIndex((x) => x.kind === "sent"));
 });
 
+test("every row the chat draws carries the moment it happened (a tools row, a question, an error)", async () => {
+  const c = await read([person, reply("m1", [bash("toolu_t1", "ls")])]);
+  const tools = c.items.find((x) => x.kind === "tools");
+  expect(tools.at).toBe(Date.parse(at));
+  expect(tools.at).toBeGreaterThan(1e12);
+  // no timestamp in the log: no time (never the moment it was read)
+  const u = await read([person, { ...reply("m2", [bash("toolu_t2", "ls")]), timestamp: undefined }]);
+  expect(u.items.find((x) => x.kind === "tools" && x.steps.some((s) => s.id === "toolu_t2"))?.at ?? undefined).toBeUndefined();
+});
+
 test("sendsOf reads only what a command really sends", () => {
   // a heredoc's body is a file's words, never a command
   expect(sendsOf("cat > b.md <<'EOF'\nhc send t1 \"no\"\nEOF\nhc send t2 \"yes\"")).toEqual([{ to: "t2", text: "yes", how: "hc" }]);
